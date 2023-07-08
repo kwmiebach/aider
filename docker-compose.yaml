@@ -1,0 +1,20 @@
+version: '3.7'
+services:
+  aider:
+    build:
+      context: .
+      dockerfile: ./Dockerfile  
+    volumes:
+      # Uncomment the following line for development:
+      - .:/src
+      # ./workdir is for the app that we work on
+      # Probably a good idea to use a directory
+      # outside th aider directory.
+      - ${AIDER_WORKDIR}:/workdir
+      # Make local user's git config available in 
+      # the container but readonly:
+      - ${HOME}/.gitconfig:/home/appuser/.gitconfig:ro
+    command: tail -f /dev/null
+    env_file:
+      # Remember to set AIDER_WORKDIR and OPENAI_API_KEY:
+      - .env
