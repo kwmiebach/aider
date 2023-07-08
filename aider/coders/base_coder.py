@@ -21,6 +21,7 @@ from rich.markdown import Markdown
 from aider import models, prompts, utils
 from aider.commands import Commands
 from aider.repomap import RepoMap
+import aider.log as LOG
 
 from ..dump import dump  # noqa: F401
 
@@ -476,6 +477,9 @@ class Coder:
         if self.verbose:
             utils.show_messages(messages, functions=self.functions)
 
+        LOG.debug(messages,'Messages')
+        LOG.debug(self.functions,'Functions')
+
         exhausted = False
         interrupted = False
         try:
@@ -712,7 +716,18 @@ class Coder:
             if live:
                 live.start()
 
+            LOG.debug('','Choices')
+
             for chunk in completion:
+
+                for choice in chunk["choices"]:
+                   try:
+                      next_log_part = choice["delta"]["content"]
+                   except KeyError:
+                      next_log_part = '\n\n'
+                   LOG.debug_nobreak(next_log_part)
+
+
                 if chunk.choices[0].finish_reason == "length":
                     raise ExhaustedContextWindow()
 

@@ -8,6 +8,7 @@ import git
 from aider import __version__, models
 from aider.coders import Coder
 from aider.io import InputOutput
+import aider.log as LOG
 
 
 def get_git_root():
@@ -246,6 +247,13 @@ def main(args=None, input=None, output=None):
         help="Specify a single message to send GPT, process reply then exit (disables chat mode)",
     )
     args = parser.parse_args(args)
+
+    import copy
+    args_safe = copy.deepcopy(args)
+    args_safe.openai_api_key = '** NOT_SHOWN **'
+    # convert to dict
+    args_safe = vars(args_safe)
+    LOG.debug(args_safe,'STARTUP ARGS')
 
     io = InputOutput(
         args.pretty,
