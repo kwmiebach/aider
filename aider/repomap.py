@@ -61,7 +61,13 @@ def fname_to_components(fname, with_colon):
 
 class RepoMap:
     CACHE_VERSION = 1
-    ctags_cmd = ["ctags", "--fields=+S", "--extras=-F", "--output-format=json"]
+    ctags_cmd = [
+        "ctags",
+        "--fields=+S",
+        "--extras=-F",
+        "--output-format=json",
+        "--output-encoding=utf-8",
+    ]
     IDENT_CACHE_DIR = f".aider.ident.cache.v{CACHE_VERSION}"
     TAGS_CACHE_DIR = f".aider.tags.cache.v{CACHE_VERSION}"
 
@@ -74,8 +80,10 @@ class RepoMap:
         main_model=models.GPT4,
         io=None,
         repo_content_prefix=None,
+        verbose=False,
     ):
         self.io = io
+        self.verbose = verbose
 
         if not root:
             root = os.getcwd()
@@ -130,7 +138,7 @@ class RepoMap:
             files_listing = self.get_ranked_tags_map(chat_files, other_files)
             if files_listing:
                 num_tokens = self.token_count(files_listing)
-                if self.io:
+                if self.verbose:
                     self.io.tool_output(f"ctags map: {num_tokens/1024:.1f} k-tokens")
                 ctags_msg = " with selected ctags info"
                 return files_listing, ctags_msg
@@ -138,7 +146,7 @@ class RepoMap:
         files_listing = self.get_simple_files_map(other_files)
         ctags_msg = ""
         num_tokens = self.token_count(files_listing)
-        if self.io:
+        if self.verbose:
             self.io.tool_output(f"simple map: {num_tokens/1024:.1f} k-tokens")
         if num_tokens < self.max_map_tokens:
             return files_listing, ctags_msg
@@ -169,11 +177,20 @@ class RepoMap:
         if cache_key in self.TAGS_CACHE and self.TAGS_CACHE[cache_key]["mtime"] == file_mtime:
             return self.TAGS_CACHE[cache_key]["data"]
 
-        cmd = self.ctags_cmd + [filename]
+        cmd = self.ctags_cmd + [
+            f"--input-encoding={self.io.encoding}",
+            filename,
+        ]
         output = subprocess.check_output(cmd, stderr=subprocess.PIPE).decode("utf-8")
-        output = output.splitlines()
+        output_lines = output.splitlines()
 
-        data = [json.loads(line) for line in output]
+        data = []
+        for line in output_lines:
+            try:
+                data.append(json.loads(line))
+            except json.decoder.JSONDecodeError as err:
+                self.io.tool_error(f"Error parsing ctags output: {err}")
+                self.io.tool_error(repr(line))
 
         # Update the cache
         self.TAGS_CACHE[cache_key] = {"mtime": file_mtime, "data": data}
@@ -198,7 +215,7 @@ class RepoMap:
 
             with tempfile.TemporaryDirectory() as tempdir:
                 hello_py = os.path.join(tempdir, "hello.py")
-                with open(hello_py, "w") as f:
+                with open(hello_py, "w", encoding="utf-8") as f:
                     f.write("def hello():\n    print('Hello, world!')\n")
                 self.run_ctags(hello_py)
         except FileNotFoundError:
@@ -237,10 +254,8 @@ class RepoMap:
         return idents
 
     def get_name_identifiers_uncached(self, fname):
-        try:
-            with open(fname, "r") as f:
-                content = f.read()
-        except UnicodeDecodeError:
+        content = self.io.read_text(fname)
+        if content is None:
             return list()
 
         try:

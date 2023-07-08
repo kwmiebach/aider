@@ -30,7 +30,10 @@ class WholeFileCoder(Coder):
         return context
 
     def render_incremental_response(self, final):
-        return self.update_files(mode="diff")
+        try:
+            return self.update_files(mode="diff")
+        except ValueError:
+            return self.partial_response_content
 
     def update_files(self, mode="update"):
         content = self.partial_response_content
@@ -52,21 +55,12 @@ class WholeFileCoder(Coder):
 
                     full_path = (Path(self.root) / fname).absolute()
 
-                    if mode == "diff" and full_path.exists():
-                        orig_lines = full_path.read_text().splitlines(keepends=True)
-
-                        show_diff = diffs.diff_partial_update(
-                            orig_lines,
-                            new_lines,
-                            final=True,
-                        ).splitlines()
-                        output += show_diff
-                    else:
-                        if self.allowed_to_edit(fname):
-                            edited.add(fname)
-                            if not self.dry_run:
-                                new_lines = "".join(new_lines)
-                                full_path.write_text(new_lines)
+                    if mode == "diff":
+                        output += self.do_live_diff(full_path, new_lines)
+                    elif self.allowed_to_edit(fname):
+                        edited.add(fname)
+                        new_lines = "".join(new_lines)
+                        self.io.write_text(full_path, new_lines)
 
                     fname = None
                     new_lines = []
@@ -107,24 +101,29 @@ class WholeFileCoder(Coder):
             if fname is not None:
                 # ending an existing block
                 full_path = (Path(self.root) / fname).absolute()
-
-                if mode == "diff" and full_path.exists():
-                    orig_lines = full_path.read_text().splitlines(keepends=True)
-
-                    show_diff = diffs.diff_partial_update(
-                        orig_lines,
-                        new_lines,
-                    ).splitlines()
-                    output += show_diff
-
+                output += self.do_live_diff(full_path, new_lines)
             return "\n".join(output)
 
         if fname:
             full_path = self.allowed_to_edit(fname)
             if full_path:
                 edited.add(fname)
-                if not self.dry_run:
-                    new_lines = "".join(new_lines)
-                    Path(full_path).write_text(new_lines)
+                new_lines = "".join(new_lines)
+                self.io.write_text(full_path, new_lines)
 
         return edited
+
+    def do_live_diff(self, full_path, new_lines):
+        if full_path.exists():
+            orig_lines = self.io.read_text(full_path).splitlines(keepends=True)
+
+            show_diff = diffs.diff_partial_update(
+                orig_lines,
+                new_lines,
+                final=True,
+            ).splitlines()
+            output = show_diff
+        else:
+            output = ["```"] + new_lines + ["```"]
+
+        return output

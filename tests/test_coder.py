@@ -1,5 +1,6 @@
-import os
+import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import openai
@@ -7,6 +8,8 @@ import requests
 
 from aider import models
 from aider.coders import Coder
+from aider.dump import dump  # noqa: F401
+from aider.io import InputOutput
 
 
 class TestCoder(unittest.TestCase):
@@ -34,8 +37,36 @@ class TestCoder(unittest.TestCase):
         coder.check_for_file_mentions("Please check file1.txt and file2.py")
 
         # Check if coder.abs_fnames contains both files
-        expected_files = {os.path.abspath("file1.txt"), os.path.abspath("file2.py")}
+        expected_files = set(
+            map(
+                str,
+                [
+                    Path(coder.root) / "file1.txt",
+                    Path(coder.root) / "file2.py",
+                ],
+            )
+        )
         self.assertEqual(coder.abs_fnames, expected_files)
+
+    def test_get_files_content(self):
+        tempdir = Path(tempfile.mkdtemp())
+
+        file1 = tempdir / "file1.txt"
+        file2 = tempdir / "file2.txt"
+
+        file1.touch()
+        file2.touch()
+
+        files = [file1, file2]
+
+        # Initialize the Coder object with the mocked IO and mocked repo
+        coder = Coder.create(
+            models.GPT4, None, io=InputOutput(), openai_api_key="fake_key", fnames=files
+        )
+
+        content = coder.get_files_content().splitlines()
+        self.assertIn("file1.txt", content)
+        self.assertIn("file2.txt", content)
 
     def test_check_for_filename_mentions_of_longer_paths(self):
         # Mock the IO object
@@ -46,14 +77,22 @@ class TestCoder(unittest.TestCase):
 
         # Mock the git repo
         mock_repo = MagicMock()
-        mock_repo.git.ls_files.return_value = "./file1.txt\n./file2.py"
+        mock_repo.git.ls_files.return_value = "file1.txt\nfile2.py"
         coder.repo = mock_repo
 
         # Call the check_for_file_mentions method
         coder.check_for_file_mentions("Please check file1.txt and file2.py")
 
         # Check if coder.abs_fnames contains both files
-        expected_files = {os.path.abspath("file1.txt"), os.path.abspath("file2.py")}
+        expected_files = set(
+            map(
+                str,
+                [
+                    Path(coder.root) / "file1.txt",
+                    Path(coder.root) / "file2.py",
+                ],
+            )
+        )
         self.assertEqual(coder.abs_fnames, expected_files)
 
     def test_check_for_ambiguous_filename_mentions_of_longer_paths(self):
@@ -177,6 +216,132 @@ class TestCoder(unittest.TestCase):
         # Assert that print was called once
         mock_print.assert_called_once()
 
+    def test_run_with_file_deletion(self):
+        # Create a few temporary files
 
-if __name__ == "__main__":
-    unittest.main()
+        tempdir = Path(tempfile.mkdtemp())
+
+        file1 = tempdir / "file1.txt"
+        file2 = tempdir / "file2.txt"
+
+        file1.touch()
+        file2.touch()
+
+        files = [file1, file2]
+
+        # Initialize the Coder object with the mocked IO and mocked repo
+        coder = Coder.create(
+            models.GPT4, None, io=InputOutput(), openai_api_key="fake_key", fnames=files
+        )
+
+        def mock_send(*args, **kwargs):
+            coder.partial_response_content = "ok"
+            coder.partial_response_function_call = dict()
+
+        coder.send = MagicMock(side_effect=mock_send)
+
+        # Call the run method with a message
+        coder.run(with_message="hi")
+        self.assertEqual(len(coder.abs_fnames), 2)
+
+        file1.unlink()
+
+        # Call the run method again with a message
+        coder.run(with_message="hi")
+        self.assertEqual(len(coder.abs_fnames), 1)
+
+    def test_run_with_file_unicode_error(self):
+        # Create a few temporary files
+        _, file1 = tempfile.mkstemp()
+        _, file2 = tempfile.mkstemp()
+
+        files = [file1, file2]
+
+        # Initialize the Coder object with the mocked IO and mocked repo
+        coder = Coder.create(
+            models.GPT4, None, io=InputOutput(), openai_api_key="fake_key", fnames=files
+        )
+
+        def mock_send(*args, **kwargs):
+            coder.partial_response_content = "ok"
+            coder.partial_response_function_call = dict()
+
+        coder.send = MagicMock(side_effect=mock_send)
+
+        # Call the run method with a message
+        coder.run(with_message="hi")
+        self.assertEqual(len(coder.abs_fnames), 2)
+
+        # Write some non-UTF8 text into the file
+        with open(file1, "wb") as f:
+            f.write(b"\x80abc")
+
+        # Call the run method again with a message
+        coder.run(with_message="hi")
+        self.assertEqual(len(coder.abs_fnames), 1)
+
+    def test_choose_fence(self):
+        # Create a few temporary files
+        _, file1 = tempfile.mkstemp()
+
+        with open(file1, "wb") as f:
+            f.write(b"this contains ``` backticks")
+
+        files = [file1]
+
+        # Initialize the Coder object with the mocked IO and mocked repo
+        coder = Coder.create(
+            models.GPT4, None, io=InputOutput(), openai_api_key="fake_key", fnames=files
+        )
+
+        def mock_send(*args, **kwargs):
+            coder.partial_response_content = "ok"
+            coder.partial_response_function_call = dict()
+
+        coder.send = MagicMock(side_effect=mock_send)
+
+        # Call the run method with a message
+        coder.run(with_message="hi")
+
+        self.assertNotEqual(coder.fence[0], "```")
+
+    def test_run_with_file_utf_unicode_error(self):
+        "make sure that we honor InputOutput(encoding) and don't just assume utf-8"
+        # Create a few temporary files
+        _, file1 = tempfile.mkstemp()
+        _, file2 = tempfile.mkstemp()
+
+        files = [file1, file2]
+
+        encoding = "utf-16"
+
+        # Initialize the Coder object with the mocked IO and mocked repo
+        coder = Coder.create(
+            models.GPT4,
+            None,
+            io=InputOutput(encoding=encoding),
+            openai_api_key="fake_key",
+            fnames=files,
+        )
+
+        def mock_send(*args, **kwargs):
+            coder.partial_response_content = "ok"
+            coder.partial_response_function_call = dict()
+
+        coder.send = MagicMock(side_effect=mock_send)
+
+        # Call the run method with a message
+        coder.run(with_message="hi")
+        self.assertEqual(len(coder.abs_fnames), 2)
+
+        some_content_which_will_error_if_read_with_encoding_utf8 = "ÅÍÎÏ".encode(encoding)
+        with open(file1, "wb") as f:
+            f.write(some_content_which_will_error_if_read_with_encoding_utf8)
+
+        coder.run(with_message="hi")
+
+        # both files should still be here
+        self.assertEqual(len(coder.abs_fnames), 2)
+
+    if __name__ == "__main__":
+        unittest.main()

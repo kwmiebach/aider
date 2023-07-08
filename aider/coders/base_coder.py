@@ -167,13 +167,13 @@ class Coder:
             self.find_common_root()
 
         if main_model.use_repo_map and self.repo and self.gpt_prompts.repo_content_prefix:
-            rm_io = io if self.verbose else None
             self.repo_map = RepoMap(
                 map_tokens,
                 self.root,
                 self.main_model,
-                rm_io,
+                io,
                 self.gpt_prompts.repo_content_prefix,
+                self.verbose,
             )
 
             if self.repo_map.use_ctags:
@@ -208,7 +208,14 @@ class Coder:
         else:
             self.root = os.getcwd()
 
-        self.root = os.path.abspath(self.root)
+        self.root = utils.safe_abs_path(self.root)
+
+    def add_rel_fname(self, rel_fname):
+        self.abs_fnames.add(self.abs_root_path(rel_fname))
+
+    def abs_root_path(self, path):
+        res = Path(self.root) / path
+        return utils.safe_abs_path(res)
 
     def set_repo(self, cmd_line_fnames):
         if not cmd_line_fnames:
@@ -226,7 +233,7 @@ class Coder:
 
             try:
                 repo_path = git.Repo(fname, search_parent_directories=True).working_dir
-                repo_path = os.path.abspath(repo_path)
+                repo_path = utils.safe_abs_path(repo_path)
                 repo_paths.append(repo_path)
             except git.exc.InvalidGitRepositoryError:
                 pass
@@ -247,7 +254,7 @@ class Coder:
         # https://github.com/gitpython-developers/GitPython/issues/427
         self.repo = git.Repo(repo_paths.pop(), odbt=git.GitDB)
 
-        self.root = os.path.abspath(self.repo.working_tree_dir)
+        self.root = utils.safe_abs_path(self.repo.working_tree_dir)
 
         new_files = []
         for fname in self.abs_fnames:
@@ -287,12 +294,21 @@ class Coder:
     ]
     fence = fences[0]
 
+    def get_abs_fnames_content(self):
+        for fname in list(self.abs_fnames):
+            content = self.io.read_text(fname)
+
+            if content is None:
+                relative_fname = self.get_rel_fname(fname)
+                self.io.tool_error(f"Dropping {relative_fname} from the chat.")
+                self.abs_fnames.remove(fname)
+            else:
+                yield fname, content
+
     def choose_fence(self):
         all_content = ""
-        for fname in self.abs_fnames:
-            all_content += Path(fname).read_text() + "\n"
-
-        all_content = all_content.splitlines()
+        for _fname, content in self.get_abs_fnames_content():
+            all_content += content + "\n"
 
         good = False
         for fence_open, fence_close in self.fences:
@@ -317,15 +333,15 @@ class Coder:
             fnames = self.abs_fnames
 
         prompt = ""
-        for fname in fnames:
+        for fname, content in self.get_abs_fnames_content():
             relative_fname = self.get_rel_fname(fname)
-            prompt += utils.quoted_file(fname, relative_fname, fence=self.fence)
-        return prompt
+            prompt += "\n"
+            prompt += relative_fname
+            prompt += f"\n{self.fence[0]}\n"
+            prompt += content
+            prompt += f"{self.fence[1]}\n"
 
-    def recheck_abs_fnames(self):
-        self.abs_fnames = set(
-            fname for fname in self.abs_fnames if Path(fname).exists() and Path(fname).is_file()
-        )
+        return prompt
 
     def get_files_messages(self):
         all_content = ""
@@ -454,10 +470,6 @@ class Coder:
         ]
 
         messages += self.done_messages
-
-        # notice if files disappear
-        self.recheck_abs_fnames()
-
         messages += self.get_files_messages()
         messages += self.cur_messages
 
@@ -473,6 +485,8 @@ class Coder:
         except openai.error.InvalidRequestError as err:
             if "maximum context length" in str(err):
                 exhausted = True
+            else:
+                raise err
 
         if exhausted:
             self.num_exhausted_context_windows += 1
@@ -579,7 +593,7 @@ class Coder:
             return
 
         for rel_fname in mentioned_rel_fnames:
-            self.abs_fnames.add(os.path.abspath(os.path.join(self.root, rel_fname)))
+            self.add_rel_fname(rel_fname)
 
         return prompts.added_files.format(fnames=", ".join(mentioned_rel_fnames))
 
@@ -901,7 +915,7 @@ class Coder:
 
     def get_all_abs_files(self):
         files = self.get_all_relative_files()
-        files = [os.path.abspath(os.path.join(self.root, path)) for path in files]
+        files = [self.abs_root_path(path) for path in files]
         return files
 
     def get_last_modified(self):
@@ -914,11 +928,11 @@ class Coder:
         return set(self.get_all_relative_files()) - set(self.get_inchat_relative_files())
 
     def allowed_to_edit(self, path, write_content=None):
-        full_path = os.path.abspath(os.path.join(self.root, path))
+        full_path = self.abs_root_path(path)
 
         if full_path in self.abs_fnames:
-            if not self.dry_run and write_content:
-                Path(full_path).write_text(write_content)
+            if write_content:
+                self.io.write_text(full_path, write_content)
             return full_path
 
         if not Path(full_path).exists():
@@ -943,12 +957,14 @@ class Coder:
                 if not self.dry_run:
                     self.repo.git.add(full_path)
 
-        if not self.dry_run and write_content:
-            Path(full_path).write_text(write_content)
+        if write_content:
+            self.io.write_text(full_path, write_content)
 
         return full_path
 
     def get_tracked_files(self):
+        if not self.repo:
+            return []
         # convert to appropriate os.sep, since git always normalizes to /
         files = set(self.repo.git.ls_files().splitlines())
         res = set(str(Path(PurePosixPath(path))) for path in files)

@@ -1,18 +1,33 @@
 # Release history
 
-### Next release
+### v0.8.2
+
+- Disabled general availability of gpt-4 (it's rolling out, not 100% available yet)
+
+### v0.8.1
+
+- Ask to create a git repo if none found, to better track GPT's code changes
+- Glob wildcards are now supported in `/add` and `/drop` commands
+- Pass `--encoding` into ctags, require it to return `utf-8`
+- More robust handling of filepaths, to avoid 8.3 windows filenames
+- Added [FAQ](https://aider.chat/docs/faq.html)
+- Marked GPT-4 as generally available
+- Bugfix for live diffs of whole coder with missing filenames
+- Bugfix for chats with multiple files
+- Bugfix in editblock coder prompt
+
+### v0.8.0
 
 - [Benchmark comparing code editing in GPT-3.5 and GPT-4](https://aider.chat/docs/benchmarks.html)
 - Improved Windows support:
-  - Fixed bugs related to directory separators in Windows
+  - Fixed bugs related to path separators in Windows
   - Added a CI step to run all tests on Windows
 - Improved handling of Unicode encoding/decoding
-  - Explicitly read/write text files with utf-8 encoding by default (affects Windows)
+  - Explicitly read/write text files with utf-8 encoding by default (mainly benefits Windows)
   - Added `--encoding` switch to specify another encoding
   - Gracefully handle decoding errors
-- Glob wildcards are now supported in `/add` and `/drop` commands
 - Added `--code-theme` switch to control the pygments styling of code blocks (by @kwmiebach)
-- Better status messages explaining the reason ctags is disabled
+- Better status messages explaining the reason when ctags is disabled
 
 ### v0.7.2:
 
