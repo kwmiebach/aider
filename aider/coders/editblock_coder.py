@@ -24,18 +24,21 @@ class EditBlockCoder(Coder):
             question = (
                 f"## Edit {current_ind + 1} of {total_edits}\n"
                 f"### {full_path}\n"
-                "Do you want to continue with this edit?\n"
-                "y: continue - n: reject current file only - q: quit all remaining edits\n"
-                "(y/n/q)"
+                "Do you want to allow the edits?\n"
+                "a: accept all edits - y: accept this edit - n: reject current edit only - q: quit all remaining edits\n"
+                "(a/y/n/q)"
             )
             while True:
-                answer = self.io.prompt_ask(question,default='y').strip().lower()
-                if answer == "y":
-                    return False, False
-                if answer == "n":
-                    return True, False
-                if answer == "q":
-                    return False, True
+                answer = self.io.prompt_ask(question,default='a').strip().lower()
+                # user_abort_current, user_abort_all, user_abort_none
+                if answer == "a":
+                    return False, False, True
+                elif answer == "y":
+                    return False, False, False
+                elif answer == "n":
+                    return True, False, False
+                elif answer == "q":
+                    return True, True, False
                 
         content = self.partial_response_content
 
@@ -45,6 +48,7 @@ class EditBlockCoder(Coder):
         edited = set()
 
         user_abort_all = False
+        user_abort_none = False
         for current_ind, (path, original, updated) in enumerate(edits):
 
             full_path = self.allowed_to_edit(path)
@@ -56,9 +60,10 @@ class EditBlockCoder(Coder):
                 continue
 
             content = self.io.read_text(full_path)
-            user_abort_current, user_abort_all = user_ask_replace(
-                path, content, original, updated, current_ind, len(edits)
-            )
+            if not user_abort_none:
+                user_abort_current, user_abort_all, user_abort_none = user_ask_replace(
+                    path, content, original, updated, current_ind, len(edits)
+                )
             if user_abort_current or user_abort_all:
                 self.io.tool_error(f"User rejected or postponed edit to {path}")
                 continue
