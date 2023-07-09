@@ -16,22 +16,64 @@ class EditBlockCoder(Coder):
         self.cur_messages += [dict(role="assistant", content=content)]
 
     def update_files(self):
+
+        def user_ask_replace(
+            full_path, content, original, updated, current_ind, total_edits
+        ):  
+            # construct a markdown question for the user
+            question = (
+                f"## Edit {current_ind + 1} of {total_edits}\n"
+                f"### {full_path}\n"
+                "Do you want to allow the edits?\n"
+                "a: accept all edits - y: accept this edit - n: reject current edit only - q: quit all remaining edits\n"
+                "(a/y/n/q)"
+            )
+            while True:
+                answer = self.io.prompt_ask(question,default='a').strip().lower()
+                # user_abort_current, user_abort_all, user_abort_none
+                if answer == "a":
+                    return False, False, True
+                elif answer == "y":
+                    return False, False, False
+                elif answer == "n":
+                    return True, False, False
+                elif answer == "q":
+                    return True, True, False
+                
         content = self.partial_response_content
 
         # might raise ValueError for malformed ORIG/UPD blocks
         edits = list(find_original_update_blocks(content))
 
         edited = set()
-        for path, original, updated in edits:
+
+        user_abort_all = False
+        user_abort_none = False
+        for current_ind, (path, original, updated) in enumerate(edits):
+
             full_path = self.allowed_to_edit(path)
             if not full_path:
                 continue
+
+            if user_abort_all:
+                self.io.tool_error(f"User rejected or postponed edit to {path}")
+                continue
+
             content = self.io.read_text(full_path)
+            if not user_abort_none:
+                user_abort_current, user_abort_all, user_abort_none = user_ask_replace(
+                    path, content, original, updated, current_ind, len(edits)
+                )
+            if user_abort_current or user_abort_all:
+                self.io.tool_error(f"User rejected or postponed edit to {path}")
+                continue
+
             content = do_replace(full_path, content, original, updated)
             if content:
                 self.io.write_text(full_path, content)
                 edited.add(path)
                 continue
+
             self.io.tool_error(f"Failed to apply edit to {path}")
 
         return edited
