@@ -46,7 +46,7 @@ def main(args=None, input=None, output=None):
     ##########
     core_group = parser.add_argument_group("Main")
     core_group.add_argument(
-        "files",
+        "--files",
         metavar="FILE",
         nargs="*",
         help="a list of source code files to edit with GPT (optional)",
