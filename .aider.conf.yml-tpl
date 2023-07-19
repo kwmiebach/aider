@@ -1,0 +1,7 @@
+# rename and put this file in your workdir
+
+
+files:
+  # those will be included when aider starts:
+  # path/relative/from/workdir.txt1
+  # path/relative/from/workdir.txt2
