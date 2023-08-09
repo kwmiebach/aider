@@ -227,7 +227,7 @@ def replace_most_similar_chunk(whole, part, replace):
     return modified_whole
 
 
-def strip_quoted_wrapping(res, fname=None):
+def strip_quoted_wrapping(res, fname=None, fence=None):
     """
     Given an input string which may have extra "wrapping" around it, remove the wrapping.
     For example:
@@ -241,12 +241,15 @@ def strip_quoted_wrapping(res, fname=None):
     if not res:
         return res
 
+    if not fence:
+        fence = ("```", "```")
+
     res = res.splitlines()
 
     if fname and res[0].strip().endswith(Path(fname).name):
         res = res[1:]
 
-    if res[0].startswith("```") and res[-1].startswith("```"):
+    if res[0].startswith(fence[0]) and res[-1].startswith(fence[1]):
         res = res[1:-1]
 
     res = "\n".join(res)
@@ -256,9 +259,9 @@ def strip_quoted_wrapping(res, fname=None):
     return res
 
 
-def do_replace(fname, content, before_text, after_text):
-    before_text = strip_quoted_wrapping(before_text, fname)
-    after_text = strip_quoted_wrapping(after_text, fname)
+def do_replace(fname, content, before_text, after_text, fence=None):
+    before_text = strip_quoted_wrapping(before_text, fname, fence)
+    after_text = strip_quoted_wrapping(after_text, fname, fence)
     fname = Path(fname)
 
     # does it want to make a new file?

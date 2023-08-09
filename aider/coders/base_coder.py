@@ -53,8 +53,6 @@ class Coder:
         main_model,
         edit_format,
         io,
-        openai_api_key,
-        openai_api_base="https://api.openai.com/v1",
         **kwargs,
     ):
         from . import (
@@ -64,9 +62,6 @@ class Coder:
             WholeFileCoder,
             WholeFileFunctionCoder,
         )
-
-        openai.api_key = openai_api_key
-        openai.api_base = openai_api_base
 
         if not main_model:
             main_model = models.GPT35_16k
@@ -349,6 +344,14 @@ class Coder:
 
         return prompt
 
+    def get_repo_map(self):
+        if not self.repo_map:
+            return
+
+        other_files = set(self.get_all_abs_files()) - set(self.abs_fnames)
+        repo_content = self.repo_map.get_repo_map(self.abs_fnames, other_files)
+        return repo_content
+
     def get_files_messages(self):
         all_content = ""
         if self.abs_fnames:
@@ -359,13 +362,11 @@ class Coder:
 
         all_content += files_content
 
-        other_files = set(self.get_all_abs_files()) - set(self.abs_fnames)
-        if self.repo_map:
-            repo_content = self.repo_map.get_repo_map(self.abs_fnames, other_files)
-            if repo_content:
-                if all_content:
-                    all_content += "\n"
-                all_content += repo_content
+        repo_content = self.get_repo_map()
+        if repo_content:
+            if all_content:
+                all_content += "\n"
+            all_content += repo_content
 
         files_messages = [
             dict(role="user", content=all_content),
@@ -565,7 +566,7 @@ class Coder:
             )
         else:
             if self.repo:
-                self.io.tool_error("Warning: no changes found in tracked files.")
+                self.io.tool_output("No changes made to git tracked files.")
             saved_message = self.gpt_prompts.files_content_gpt_no_edits
 
         return saved_message
@@ -585,6 +586,9 @@ class Coder:
         mentioned_rel_fnames = set()
         fname_to_rel_fnames = {}
         for rel_fname in addable_rel_fnames:
+            if rel_fname in words:
+                mentioned_rel_fnames.add(str(rel_fname))
+
             fname = os.path.basename(rel_fname)
             if fname not in fname_to_rel_fnames:
                 fname_to_rel_fnames[fname] = []
@@ -618,7 +622,9 @@ class Coder:
             requests.exceptions.ConnectionError,
         ),
         max_tries=10,
-        on_backoff=lambda details: print(f"Retry in {details['wait']} seconds."),
+        on_backoff=lambda details: print(
+            f"{details.get('exception','Exception')}\nRetry in {details['wait']:.1f} seconds."
+        ),
     )
     def send_with_retries(self, model, messages, functions):
         kwargs = dict(
@@ -629,6 +635,12 @@ class Coder:
         )
         if functions is not None:
             kwargs["functions"] = self.functions
+
+        # we are abusing the openai object to stash these values
+        if hasattr(openai, "api_deployment_id"):
+            kwargs["deployment_id"] = openai.api_deployment_id
+        if hasattr(openai, "api_engine"):
+            kwargs["engine"] = openai.api_engine
 
         # Generate SHA1 hash of kwargs and append it to chat_completion_call_hashes
         hash_object = hashlib.sha1(json.dumps(kwargs, sort_keys=True).encode())

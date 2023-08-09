@@ -1,6 +1,15 @@
 # Release history
 
-### Next release
+### v0.9.0
+
+- Support for the OpenAI models in [Azure](https://aider.chat/docs/faq.html#azure)
+- Added `--show-repo-map`
+- Improved output when retrying connections to the OpenAI API
+- Redacted api key from `--verbose` output
+- Bugfix: recognize and add files in subdirectories mentioned by user or GPT
+- [Benchmarked](https://aider.chat/docs/benchmarks.html) at 53.8% for gpt-3.5-turbo/whole
+
+### v0.8.3
 
 - Added `--dark-mode` and `--light-mode` to select colors optimized for terminal background
 - Install docs link to [NeoVim plugin](https://github.com/joshuavial/aider.nvim) by @joshuavial
