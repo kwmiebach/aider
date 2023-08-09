@@ -19,6 +19,7 @@ fi
 
 # Get the location of the aider package in site-packages
 pkg_location=$(python -c "import os, aider; print(os.path.dirname(aider.__file__))" 2>/dev/null)
+echo "Package location: ${pkg_location}"
 
 # Check if ${pkg_location} starts with /opt/venv/bin
 if [[ ${pkg_location} == /opt/venv/bin* ]]; then
