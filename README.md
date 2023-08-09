@@ -3,7 +3,7 @@
 `aider` is a command-line chat tool that allows you to write and edit
 code with OpenAI's GPT models.  You can ask GPT to help you start
 a new project, or modify code in your existing git repo.
-Aider makes it easy to git commit, diff & undo changes proposed by GPT without copy/pasting. 
+Aider makes it easy to git commit, diff & undo changes proposed by GPT without copy/pasting.
 It also has features that [help GPT-4 understand and modify larger codebases](https://aider.chat/docs/ctags.html).
 
 ![aider screencast](assets/screencast.svg)
@@ -11,29 +11,34 @@ It also has features that [help GPT-4 understand and modify larger codebases](ht
 - [Getting started](#getting-started)
 - [Example chat transcripts](#example-chat-transcripts)
 - [Features](#features)
-- [Installation](#installation)
 - [Usage](#usage)
 - [In-chat commands](#in-chat-commands)
 - [Tips](#tips)
-- [GPT-4 vs GPT-3.5](#gpt-4-vs-gpt-35)
+- [GPT-4 vs GPT-3.5](https://aider.chat/docs/faq.html#gpt-4-vs-gpt-35)
+- [Installation](https://aider.chat/docs/install.html)
 - [FAQ](https://aider.chat/docs/faq.html)
 
 ## Getting started
 
+See the
+[installation instructions](https://aider.chat/docs/install.html)
+for more details, but you can
+get started quickly like this:
+
 ```
 $ pip install aider-chat
 $ export OPENAI_API_KEY=your-key-goes-here
-$ aider myapp.py
+$ aider app.py
 
 Using git repo: .git
-Added myapp.py to the chat.
+Added app.py to the chat.
 
-myapp.py> change the fibonacci function from recursion to iteration
+app.py> make a flask app that replies "hello world" on /hello
 ```
 
 ## Example chat transcripts
 
-Here are some example transcripts that show how you can chat with `aider` to write and edit code with GPT-4. 
+Here are some example transcripts that show how you can chat with `aider` to write and edit code with GPT-4.
 
 * [**Hello World Flask App**](https://aider.chat/examples/hello-world-flask.html): Start from scratch and have GPT create a simple Flask app with various endpoints, such as adding two numbers and calculating the Fibonacci sequence.
 
@@ -56,23 +61,6 @@ You can find more chat transcripts on the [examples page](https://aider.chat/exa
 * Aider can [give *GPT-4* a map of your entire git repo](https://aider.chat/docs/ctags.html), which helps it understand and modify large codebases.
 * You can also edit files by hand using your editor while chatting with aider. Aider will notice these out-of-band edits and ask if you'd like to commit them. This lets you bounce back and forth between the aider chat and your editor, to collaboratively code with GPT.
 
-
-## Installation
-
-1. Install the package with pip:
-  * PyPI: `python -m pip install aider-chat`
-  * GitHub: `python -m pip install git+https://github.com/paul-gauthier/aider.git`
-  * Local clone: `python -m pip install -e .` 
-
-2. Set up your OpenAI API key:
-  * As an environment variable:
-    * `export OPENAI_API_KEY=sk-...` on Linux or Mac
-    * `setx OPENAI_API_KEY sk-...` in Windows PowerShell
-  * Or include `openai-api-key: sk-...` in an `.aider.conf.yml` file in your home directory or at the root of your git repo, alongside the `.git` dir.
-
-3. Make sure you have git installed.
-
-4. Optionally, install [universal ctags](https://github.com/universal-ctags/ctags). This is helpful if you plan to use aider and GPT-4 with repositories that have more than a handful of files.  This allows aider to build a [map of your entire git repo](https://aider.chat/docs/ctags.html) and share it with GPT to help it better understand and modify large codebases. See the [FAQ entry about ctags](https://aider.chat/docs/faq.html#how-do-i-get-ctags-working) for more info.
 
 ## Usage
 
@@ -120,7 +108,7 @@ Aider supports commands from within the chat, which all start with `/`. Here are
 ## Tips
 
 * Think about which files need to be edited to make your change and add them to the chat.
-Aider has some ability to help GPT figure out which files to edit all by itself, but the most effective approach is to explicitly add the needed files to the chat yourself. 
+Aider has some ability to help GPT figure out which files to edit all by itself, but the most effective approach is to explicitly add the needed files to the chat yourself.
 * Large changes are best performed as a sequence of thoughtful bite sized steps, where you plan out the approach and overall design. Walk GPT through changes like you might with a junior dev. Ask for a refactor to prepare, then ask for the actual change. Spend the time to ask for code quality/structure improvements.
 * Use Control-C to safely interrupt GPT if it isn't providing a useful response. The partial response remains in the conversation, so you can refer to it when you reply to GPT with more information or direction.
 * Use the `/run` command to run tests, linters, etc and show the output to GPT so it can fix any issues.
@@ -131,40 +119,6 @@ Aider has some ability to help GPT figure out which files to edit all by itself,
 * GPT can only see the content of the files you specifically "add to the chat". Aider also sends GPT-4 a [map of your entire git repo](https://aider.chat/docs/ctags.html). So GPT may ask to see additional files if it feels that's needed for your requests.
 * I also shared some general [GPT coding tips on Hacker News](https://news.ycombinator.com/item?id=36211879).
 
-## GPT-4 vs GPT-3.5
-
-Aider supports all of OpenAI's chat models,
-but you will probably get the best results with one of the GPT-4 models.
-They have large context windows, better coding skills and
-they generally obey the instructions in the system prompt.
-GPT-4 is able to structure code edits as simple "diffs"
-and use a
-[repository map](https://aider.chat/docs/ctags.html)
-to improve its ability to make changes in larger codebases.
-
-GPT-3.5 is supported more experimentally
-and is limited to editing somewhat smaller codebases.
-It is less able to follow instructions and
-can't reliably return code edits as "diffs".
-Aider disables the
-repository map
-when using GPT-3.5.
-
-For a detailed and quantitative comparison, please see the
-[code editing benchmark results for GPT-3.5 and GPT-4](https://aider.chat/docs/benchmarks.html).
-
-In practice, this means you can use aider to edit a set of source files
-that total up to the sizes below.
-Just add the specific set of files to the chat
-that are relevant to the change you are requesting.
-This minimizes your use of the context window, as well as costs.
-
-| Model             | Context<br>Size | Edit<br>Format | Max<br>File Size | Max<br>File Size | Repo<br>Map? |
-| ----------------- | -- | --     | -----| -- | -- |
-| gpt-3.5-turbo     |  4k tokens | whole file | 2k tokens | ~8k bytes | no |
-| gpt-3.5-turbo-16k | 16k tokens | whole file | 8k tokens | ~32k bytes | no |
-| gpt-4             |  8k tokens | diffs | 8k tokens | ~32k bytes | yes | 
-| gpt-4-32k         | 32k tokens | diffs | 32k tokens  | ~128k bytes | yes |
 
 ## Kind words from users
 
@@ -172,4 +126,23 @@ This minimizes your use of the context window, as well as costs.
 * "Aider ... has easily quadrupled my coding productivity." -- [SOLAR_FIELDS](https://news.ycombinator.com/item?id=36212100)
 * "What an amazing tool. It's incredible." -- [valyagolev](https://github.com/paul-gauthier/aider/issues/6#issue-1722897858)
 * "It was WAY faster than I would be getting off the ground and making the first few working versions." -- [Daniel Feldman](https://twitter.com/d_feldman/status/1662295077387923456)
+* "Amazing project, definitely the best AI coding assistant I've used." -- [joshuavial](https://github.com/paul-gauthier/aider/issues/84)
 
+## GPT-4 vs GPT-3.5
+
+Aider supports all of OpenAI's chat models.
+You can choose a model with the `--model` command line argument.
+
+You should probably use GPT-4 if you can. For more details see the
+[FAQ entry that compares GPT-4 vs GPT-3.5](https://aider.chat/docs/faq.html#gpt-4-vs-gpt-35).
+
+For a discussion of using other non-OpenAI models, see the
+[FAQ about other LLMs](https://aider.chat/docs/faq.html#can-i-use-aider-with-other-llms-local-llms-etc).
+
+## Installation
+
+See the [installation instructions](https://aider.chat/docs/install.html).
+
+## FAQ
+
+For more information, see the [FAQ](https://aider.chat/docs/faq.html).

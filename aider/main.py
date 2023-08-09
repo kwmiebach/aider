@@ -293,14 +293,19 @@ def main(args=None, input=None, output=None):
         dry_run=args.dry_run,
     )
 
+    io.tool_output(f"Aider v{__version__}")
+
     if not git_root and args.git:
         if io.confirm_ask("No git repo found, create one to track GPT's changes (recommended)?"):
             repo = git.Repo.init(os.getcwd())
+            global_git_config = git.GitConfigParser(
+                [str(Path.home() / ".gitconfig")], read_only=True
+            )
             with repo.config_writer() as git_config:
-                if not git_config.has_option("user", "name"):
+                if not global_git_config.has_option("user", "name"):
                     git_config.set_value("user", "name", "Your Name")
                     io.tool_error('Update git name with: git config --global user.name "Your Name"')
-                if not git_config.has_option("user", "email"):
+                if not global_git_config.has_option("user", "email"):
                     git_config.set_value("user", "email", "you@example.com")
                     io.tool_error(
                         'Update git email with: git config --global user.email "you@example.com"'
@@ -360,7 +365,7 @@ def main(args=None, input=None, output=None):
         coder.apply_updates(content)
         return
 
-    io.tool_output("Use /help to see in-chat commands.")
+    io.tool_output("Use /help to see in-chat commands, run with --help to see cmd line args")
     if args.message:
         io.tool_output()
         coder.run(with_message=args.message)

@@ -46,7 +46,7 @@ class Commands:
         else:
             self.io.tool_output(f"Error: Command {cmd_name} not found.")
 
-    def run(self, inp):
+    def matching_commands(self, inp):
         words = inp.strip().split()
         if not words:
             return
@@ -56,12 +56,19 @@ class Commands:
 
         all_commands = self.get_commands()
         matching_commands = [cmd for cmd in all_commands if cmd.startswith(first_word)]
+        return matching_commands, first_word, rest_inp
+
+    def run(self, inp):
+        res = self.matching_commands(inp)
+        if res is None:
+            return
+        matching_commands, first_word, rest_inp = res
         if len(matching_commands) == 1:
             return self.do_run(matching_commands[0][1:], rest_inp)
         elif len(matching_commands) > 1:
             self.io.tool_error(f"Ambiguous command: {', '.join(matching_commands)}")
         else:
-            self.io.tool_error(f"Error: {first_word} is not a valid command.")
+            self.io.tool_error(f"Invalid command: {first_word}")
 
     # any method called cmd_xxx becomes a command automatically.
     # each one must take an args param.
@@ -221,15 +228,19 @@ class Commands:
                 yield Completion(fname, start_position=-len(partial))
 
     def glob_filtered_to_repo(self, pattern):
-        matched_files = Path(self.coder.root).glob(pattern)
-        matched_files = [fn.relative_to(self.coder.root) for fn in matched_files]
+        raw_matched_files = list(Path(self.coder.root).glob(pattern))
+
+        matched_files = []
+        for fn in raw_matched_files:
+            matched_files += expand_subdir(fn.relative_to(self.coder.root))
 
         # if repo, filter against it
         if self.coder.repo:
             git_files = self.coder.get_tracked_files()
             matched_files = [fn for fn in matched_files if str(fn) in git_files]
 
-        return list(map(str, matched_files))
+        res = list(map(str, matched_files))
+        return res
 
     def cmd_add(self, args):
         "Add matching files to the chat session using glob patterns"
@@ -238,6 +249,7 @@ class Commands:
         git_added = []
         git_files = self.coder.get_tracked_files()
 
+        all_matched_files = set()
         for word in args.split():
             matched_files = self.glob_filtered_to_repo(word)
 
@@ -246,30 +258,35 @@ class Commands:
                     self.io.tool_error(f"No files to add matching pattern: {word}")
                 else:
                     if Path(word).exists():
-                        matched_files = [word]
+                        if Path(word).is_file():
+                            matched_files = [word]
+                        else:
+                            self.io.tool_error(f"Unable to add: {word}")
                     elif self.io.confirm_ask(
                         f"No files matched '{word}'. Do you want to create the file?"
                     ):
                         (Path(self.coder.root) / word).touch()
                         matched_files = [word]
 
-            for matched_file in matched_files:
-                abs_file_path = self.coder.abs_root_path(matched_file)
+            all_matched_files.update(matched_files)
 
-                if self.coder.repo and matched_file not in git_files:
-                    self.coder.repo.git.add(abs_file_path)
-                    git_added.append(matched_file)
+        for matched_file in all_matched_files:
+            abs_file_path = self.coder.abs_root_path(matched_file)
 
-                if abs_file_path not in self.coder.abs_fnames:
-                    content = self.io.read_text(abs_file_path)
-                    if content is not None:
-                        self.coder.abs_fnames.add(abs_file_path)
-                        self.io.tool_output(f"Added {matched_file} to the chat")
-                        added_fnames.append(matched_file)
-                    else:
-                        self.io.tool_error(f"Unable to read {matched_file}")
+            if self.coder.repo and matched_file not in git_files:
+                self.coder.repo.git.add(abs_file_path)
+                git_added.append(matched_file)
+
+            if abs_file_path in self.coder.abs_fnames:
+                self.io.tool_error(f"{matched_file} is already in the chat")
+            else:
+                content = self.io.read_text(abs_file_path)
+                if content is None:
+                    self.io.tool_error(f"Unable to read {matched_file}")
                 else:
-                    self.io.tool_error(f"{matched_file} is already in the chat")
+                    self.coder.abs_fnames.add(abs_file_path)
+                    self.io.tool_output(f"Added {matched_file} to the chat")
+                    added_fnames.append(matched_file)
 
         if self.coder.repo and git_added:
             git_added = " ".join(git_added)
@@ -380,3 +397,14 @@ class Commands:
                 self.io.tool_output(f"{cmd} {description}")
             else:
                 self.io.tool_output(f"{cmd} No description available.")
+
+
+def expand_subdir(file_path):
+    file_path = Path(file_path)
+    if file_path.is_file():
+        yield file_path
+        return
+
+    for file in file_path.rglob("*"):
+        if file.is_file():
+            yield str(file)
