@@ -111,6 +111,15 @@ def main(argv=None, input=None, output=None, force_git_root=None):
         if git_conf not in default_config_files:
             default_config_files.append(git_conf)
     default_config_files.append(Path.home() / conf_fname)  # homedir
+
+    # Include additional config file 'local' if present
+    conf_local_fname = Path(".aider.conf.local.yml")
+    try:
+        conf_local = Path(conf_local_fname).resolve()
+        default_config_files.append(conf_local)
+    except FileNotFoundError:
+        pass
+
     default_config_files = list(map(str, default_config_files))
 
     parser = configargparse.ArgumentParser(
