@@ -370,6 +370,12 @@ def main(argv=None, input=None, output=None, force_git_root=None):
         help="Specify a single message to send GPT, process reply then exit (disables chat mode)",
     )
     other_group.add_argument(
+        "--edit-block-prompts-main-system",
+        metavar="PROMPT_MAIN_SYSTEM",
+        help="Specify a string that overrides the main system prompt.",
+        default=None,
+    )
+    other_group.add_argument(
         "-c",
         "--config",
         is_config_file=True,
@@ -492,6 +498,11 @@ def main(argv=None, input=None, output=None, force_git_root=None):
             setattr(openai, mod_key, val)
             io.tool_output(f"Setting openai.{mod_key}={val}")
 
+    # Override certain prompts from configuration
+    prompts_override = dict()
+    if args.edit_block_prompts_main_system is not None:
+        prompts_override['edit_block_prompts'] = dict(main_system = args.edit_block_prompts_main_system)
+
     try:
         coder = Coder.create(
             main_model,
@@ -511,6 +522,7 @@ def main(argv=None, input=None, output=None, force_git_root=None):
             code_theme=args.code_theme,
             stream=args.stream,
             use_git=args.git,
+            prompts_override=prompts_override,
         )
     except ValueError as err:
         io.tool_error(str(err))

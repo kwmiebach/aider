@@ -10,6 +10,11 @@ from .editblock_prompts import EditBlockPrompts
 class EditBlockCoder(Coder):
     def __init__(self, *args, **kwargs):
         self.gpt_prompts = EditBlockPrompts()
+        if 'prompts_override' in kwargs:
+            prompts_override_edit_block = kwargs['prompts_override'].get('edit_block_prompts',dict())
+            if 'main_system' in prompts_override_edit_block:
+                self.gpt_prompts.main_system = prompts_override_edit_block['main_system']
+            del kwargs['prompts_override'] # do not pass to superclass
         super().__init__(*args, **kwargs)
 
     def update_files(self):
