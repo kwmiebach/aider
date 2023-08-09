@@ -369,6 +369,10 @@ def main(args=None, input=None, output=None):
 
     io.tool_output(f"Aider v{__version__}")
 
+    if 'VSCODE_GIT_IPC_HANDLE' in os.environ:
+        args.pretty = False
+        io.tool_output("VSCode terminal detected, pretty output has been disabled.")
+
     if args.git:
         git_root = setup_git(git_root, io)
         check_gitignore(git_root, io)
