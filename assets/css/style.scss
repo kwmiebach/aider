@@ -16,7 +16,7 @@
     font-family: 'Courier New', Courier, monospace;
     background-color: #000;
     color: #0f0;
-    padding: 3em 1em 1em 1em; /* Increased top padding */
+    padding: 1em 1em 1em 1em;
     border-radius: 5px;
 }
 
@@ -36,14 +36,13 @@
 }
 
 
-.chat-transcript {
-    padding-left: 30px;
-    padding-right: 30px;
-}
-
 .chat-transcript li,
 .chat-transcript p {
     color: #00FFFF;
+}
+
+.chat-transcript h1 {
+    display: none;
 }
 
 .chat-transcript h4 {
@@ -60,9 +59,9 @@
     color: #ffffff;
 }
 .chat-transcript::before {
-    content: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="90" height="25"><circle cx="10" cy="15" r="9" fill="red"/><circle cx="37" cy="15" r="9" fill="yellow"/><circle cx="64" cy="15" r="9" fill="green"/></svg>');
+    content: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="90" height="25"><circle cx="7" cy="15" r="7" fill="%23f92672"/><circle cx="27" cy="15" r="7" fill="%23f4bf75"/><circle cx="47" cy="15" r="7" fill="%23a6e22e"/></svg>');
     display: block;
     margin-bottom: 0;
     position: relative;
-    top: -2em;
+    top: -0.5em;
 }

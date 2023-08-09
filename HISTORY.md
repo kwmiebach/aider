@@ -1,8 +1,58 @@
 # Release history
 
-### Next release
+### v0.11.1
 
-- Added `--dark-mode` to select colors suitable for a dark terminal background
+- Added a progress bar when initially creating a repo map.
+- Fixed bad commit message when adding new file to empty repo.
+- Fixed corner case of pending chat history summarization when dirty committing.
+- Fixed corner case of undefined `text` when using `--no-pretty`.
+- Fixed /commit bug from repo refactor, added test coverage.
+- [Benchmarked](https://aider.chat/docs/benchmarks.html) at 53.4% for gpt-3.5/whole (no regression).
+
+### v0.11.0
+
+- Automatically summarize chat history to avoid exhausting context window.
+- More detail on dollar costs when running with `--no-stream`
+- Stronger GPT-3.5 prompt against skipping/eliding code in replies (51.9% [benchmark](https://aider.chat/docs/benchmarks.html), no regression)
+- Defend against GPT-3.5 or non-OpenAI models suggesting filenames surrounded by asterisks.
+- Refactored GitRepo code out of the Coder class.
+
+### v0.10.1
+
+- /add and /drop always use paths relative to the git root
+- Encourage GPT to use language like "add files to the chat" to ask users for permission to edit them.
+
+### v0.10.0
+
+- Added `/git` command to run git from inside aider chats.
+- Use Meta-ENTER (Esc+ENTER in some environments) to enter multiline chat messages.
+- Create a `.gitignore` with `.aider*` to prevent users from accidentaly adding aider files to git.
+- Check pypi for newer versions and notify user.
+- Updated keyboard interrupt logic so that 2 ^C in 2 seconds always forces aider to exit.
+- Provide GPT with detailed error if it makes a bad edit block, ask for a retry.
+- Force `--no-pretty` if aider detects it is running inside a VSCode terminal.
+- [Benchmarked](https://aider.chat/docs/benchmarks.html) at 64.7% for gpt-4/diff (no regression)
+
+
+### v0.9.0
+
+- Support for the OpenAI models in [Azure](https://aider.chat/docs/faq.html#azure)
+- Added `--show-repo-map`
+- Improved output when retrying connections to the OpenAI API
+- Redacted api key from `--verbose` output
+- Bugfix: recognize and add files in subdirectories mentioned by user or GPT
+- [Benchmarked](https://aider.chat/docs/benchmarks.html) at 53.8% for gpt-3.5-turbo/whole (no regression)
+
+### v0.8.3
+
+- Added `--dark-mode` and `--light-mode` to select colors optimized for terminal background
+- Install docs link to [NeoVim plugin](https://github.com/joshuavial/aider.nvim) by @joshuavial
+- Reorganized the `--help` output
+- Bugfix/improvement to whole edit format, may improve coding editing for GPT-3.5
+- Bugfix and tests around git filenames with unicode characters
+- Bugfix so that aider throws an exception when OpenAI returns InvalidRequest
+- Bugfix/improvement to /add and /drop to recurse selected directories
+- Bugfix for live diff output when using "whole" edit format
 
 ### v0.8.2
 

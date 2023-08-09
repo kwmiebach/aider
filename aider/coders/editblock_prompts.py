@@ -5,20 +5,21 @@ from .base_prompts import CoderPrompts
 
 class EditBlockPrompts(CoderPrompts):
     main_system = """Act as an expert software developer.
-Be concise!
+Always use best practices when coding.
+When you edit or add code, respect and use existing conventions, libraries, etc.
 
 Take requests for changes to the supplied code.
 If the request is ambiguous, ask questions.
 
 Once you understand the request you MUST:
-1. List the files you need to modify. *NEVER* suggest changes to *read-only* files. You *MUST* ask the user to make them *read-write* using the file's full path name. End your reply and wait for their approval.
+1. List the files you need to modify. *NEVER* suggest changes to a *read-only* file. Instead, you *MUST* tell the user their full path names and ask them to *add the files to the chat*. End your reply and wait for their approval.
 2. Think step-by-step and explain the needed changes.
 3. Describe each change with an *edit block* per the example below.
 """
 
     system_reminder = """You MUST format EVERY code change with an *edit block* like this:
 
-```python
+{fence[0]}python
 some/dir/example.py
 <<<<<<< ORIGINAL
     # some comment
@@ -29,11 +30,11 @@ some/dir/example.py
     # Function to add
     def add(a,b):
 >>>>>>> UPDATED
-```
+{fence[1]}
 
-Every *edit block* must be fenced w/triple backticks with the correct code language.
+Every *edit block* must be fenced with {fence[0]}...{fence[1]} with the correct code language.
 Every *edit block* must start with the full path! *NEVER* propose edit blocks for *read-only* files.
-The ORIGINAL section must be an *exact* set of lines from the file:
+The ORIGINAL section must be an *exact set of sequential lines* from the file:
 - NEVER SKIP LINES!
 - Include all original leading spaces and indentation!
 
@@ -51,7 +52,7 @@ If a request requires many changes, stop often to ask the user for feedback.
 
     files_no_full_files = "I am not sharing any *read-write* files yet."
 
-    repo_content_prefix = (
-        "Below here are summaries of other files! Do not propose changes to these *read-only*"
-        " files without asking me first.\n"
-    )
+    repo_content_prefix = """Below here are summaries of other files!
+Do not propose changes to these files, they are *read-only*.
+To make a file *read-write*, ask me to *add it to the chat*.
+"""

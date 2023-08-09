@@ -8,6 +8,7 @@ from unittest.mock import MagicMock, patch
 from aider import models
 from aider.coders import Coder
 from aider.coders.wholefile_coder import WholeFileCoder
+from aider.dump import dump  # noqa: F401
 from aider.io import InputOutput
 
 
@@ -75,6 +76,24 @@ class TestWholeFileCoder(unittest.TestCase):
         with open(sample_file, "r") as f:
             updated_content = f.read()
         self.assertEqual(updated_content, "Updated content\n")
+
+    def test_update_files_live_diff(self):
+        # Create a sample file in the temporary directory
+        sample_file = "sample.txt"
+        with open(sample_file, "w") as f:
+            f.write("\n".join(map(str, range(0, 100))))
+
+        # Initialize WholeFileCoder with the temporary directory
+        io = InputOutput(yes=True)
+        coder = WholeFileCoder(main_model=models.GPT35, io=io, fnames=[sample_file])
+
+        # Set the partial response content with the updated content
+        coder.partial_response_content = f"{sample_file}\n```\n0\n\1\n2\n"
+
+        lines = coder.update_files(mode="diff").splitlines()
+
+        # the live diff should be concise, since we haven't changed anything yet
+        self.assertLess(len(lines), 20)
 
     def test_update_files_with_existing_fence(self):
         # Create a sample file in the temporary directory
@@ -231,6 +250,38 @@ after b
         self.assertEqual(fname_a.read_text(), "after a\n")
         self.assertEqual(fname_b.read_text(), "after b\n")
 
+    def test_update_named_file_but_extra_unnamed_code_block(self):
+        sample_file = "hello.py"
+        new_content = "new\ncontent\ngoes\nhere\n"
+
+        with open(sample_file, "w") as f:
+            f.write("Original content\n")
+
+        # Initialize WholeFileCoder with the temporary directory
+        io = InputOutput(yes=True)
+        coder = WholeFileCoder(main_model=models.GPT35, io=io, fnames=[sample_file])
+
+        # Set the partial response content with the updated content
+        coder.partial_response_content = (
+            f"Here's the modified `{sample_file}` file that implements the `accumulate`"
+            f" function as per the given instructions:\n\n```\n{new_content}```\n\nThis"
+            " implementation uses a list comprehension to apply the `operation` function to"
+            " each element of the `collection` and returns the resulting list.\n"
+            "Run it like this:\n\n"
+            "```\npython {sample_file}\n```\n\n"
+        )
+
+        # Call update_files method
+        edited_files = coder.update_files()
+
+        # Check if the sample file was updated
+        self.assertIn(sample_file, edited_files)
+
+        # Check if the content of the sample file was updated
+        with open(sample_file, "r") as f:
+            updated_content = f.read()
+        self.assertEqual(updated_content, new_content)
+
     def test_full_edit(self):
         # Create a few temporary files
         _, file1 = tempfile.mkstemp()
@@ -241,9 +292,7 @@ after b
         files = [file1]
 
         # Initialize the Coder object with the mocked IO and mocked repo
-        coder = Coder.create(
-            models.GPT4, "whole", io=InputOutput(), openai_api_key="fake_key", fnames=files
-        )
+        coder = Coder.create(models.GPT4, "whole", io=InputOutput(), fnames=files)
 
         # no trailing newline so the response content below doesn't add ANOTHER newline
         new_content = "new\ntwo\nthree"

@@ -34,22 +34,13 @@ class SingleWholeFileFunctionCoder(Coder):
         self.gpt_prompts = SingleWholeFileFunctionPrompts()
         super().__init__(*args, **kwargs)
 
-    def update_cur_messages(self, content, edited):
+    def update_cur_messages(self, edited):
         if edited:
             self.cur_messages += [
                 dict(role="assistant", content=self.gpt_prompts.redacted_edit_message)
             ]
         else:
-            self.cur_messages += [dict(role="assistant", content=content)]
-
-    def get_context_from_history(self, history):
-        context = ""
-        if history:
-            context += "# Context:\n"
-            for msg in history:
-                if msg["role"] == "user":
-                    context += msg["role"].upper() + ": " + msg["content"] + "\n"
-        return context
+            self.cur_messages += [dict(role="assistant", content=self.partial_response_content)]
 
     def render_incremental_response(self, final=False):
         if self.partial_response_content:

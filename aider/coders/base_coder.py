@@ -4,23 +4,24 @@ import hashlib
 import json
 import os
 import sys
+import threading
+import time
 import traceback
 from json.decoder import JSONDecodeError
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 
-import backoff
-import git
 import openai
-import requests
 from jsonschema import Draft7Validator
-from openai.error import APIError, RateLimitError, ServiceUnavailableError, Timeout
 from rich.console import Console, Text
 from rich.live import Live
 from rich.markdown import Markdown
 
 from aider import models, prompts, utils
 from aider.commands import Commands
+from aider.history import ChatSummary
+from aider.repo import GitRepo
 from aider.repomap import RepoMap
+from aider.sendchat import send_with_retries
 import aider.log as LOG
 
 from ..dump import dump  # noqa: F401
@@ -47,6 +48,7 @@ class Coder:
     functions = None
     total_cost = 0.0
     num_exhausted_context_windows = 0
+    last_keyboard_interrupt = None
 
     @classmethod
     def create(
@@ -54,8 +56,6 @@ class Coder:
         main_model,
         edit_format,
         io,
-        openai_api_key,
-        openai_api_base="https://api.openai.com/v1",
         **kwargs,
     ):
         from . import (
@@ -65,9 +65,6 @@ class Coder:
             WholeFileCoder,
             WholeFileFunctionCoder,
         )
-
-        openai.api_key = openai_api_key
-        openai.api_base = openai_api_base
 
         if not main_model:
             main_model = models.GPT35_16k
@@ -104,6 +101,7 @@ class Coder:
         main_model,
         io,
         fnames=None,
+        git_dname=None,
         pretty=True,
         show_diffs=False,
         auto_commits=True,
@@ -126,7 +124,6 @@ class Coder:
         self.abs_fnames = set()
         self.cur_messages = []
         self.done_messages = []
-        self.num_control_c = 0
 
         self.io = io
         self.stream = stream
@@ -155,13 +152,27 @@ class Coder:
 
         self.commands = Commands(self.io, self)
 
+        for fname in fnames:
+            fname = Path(fname)
+            if not fname.exists():
+                self.io.tool_output(f"Creating empty file {fname}")
+                fname.parent.mkdir(parents=True, exist_ok=True)
+                fname.touch()
+
+            if not fname.is_file():
+                raise ValueError(f"{fname} is not a file")
+
+            self.abs_fnames.add(str(fname.resolve()))
+
         if use_git:
-            self.set_repo(fnames)
-        else:
-            self.abs_fnames = set([str(Path(fname).resolve()) for fname in fnames])
+            try:
+                self.repo = GitRepo(self.io, fnames, git_dname)
+                self.root = self.repo.root
+            except FileNotFoundError:
+                self.repo = None
 
         if self.repo:
-            rel_repo_dir = os.path.relpath(self.repo.git_dir, os.getcwd())
+            rel_repo_dir = self.repo.get_rel_repo_dir()
             self.io.tool_output(f"Git repo: {rel_repo_dir}")
         else:
             self.io.tool_output("Git repo: none")
@@ -192,6 +203,13 @@ class Coder:
         for fname in self.get_inchat_relative_files():
             self.io.tool_output(f"Added {fname} to the chat.")
 
+        if self.repo:
+            self.repo.add_new_files(fname for fname in fnames if not Path(fname).is_dir())
+
+        self.summarizer = ChatSummary()
+        self.summarizer_thread = None
+        self.summarized_done_messages = None
+
         # validate the functions jsonschema
         if self.functions:
             for function in self.functions:
@@ -218,73 +236,6 @@ class Coder:
         res = Path(self.root) / path
         return utils.safe_abs_path(res)
 
-    def set_repo(self, cmd_line_fnames):
-        if not cmd_line_fnames:
-            cmd_line_fnames = ["."]
-
-        repo_paths = []
-        for fname in cmd_line_fnames:
-            fname = Path(fname)
-            if not fname.exists():
-                self.io.tool_output(f"Creating empty file {fname}")
-                fname.parent.mkdir(parents=True, exist_ok=True)
-                fname.touch()
-
-            fname = fname.resolve()
-
-            try:
-                repo_path = git.Repo(fname, search_parent_directories=True).working_dir
-                repo_path = utils.safe_abs_path(repo_path)
-                repo_paths.append(repo_path)
-            except git.exc.InvalidGitRepositoryError:
-                pass
-
-            if fname.is_dir():
-                continue
-
-            self.abs_fnames.add(str(fname))
-
-        num_repos = len(set(repo_paths))
-
-        if num_repos == 0:
-            return
-        if num_repos > 1:
-            self.io.tool_error("Files are in different git repos.")
-            return
-
-        # https://github.com/gitpython-developers/GitPython/issues/427
-        self.repo = git.Repo(repo_paths.pop(), odbt=git.GitDB)
-
-        self.root = utils.safe_abs_path(self.repo.working_tree_dir)
-
-        new_files = []
-        for fname in self.abs_fnames:
-            relative_fname = self.get_rel_fname(fname)
-
-            tracked_files = set(self.get_tracked_files())
-            if relative_fname not in tracked_files:
-                new_files.append(relative_fname)
-
-        if new_files:
-            rel_repo_dir = os.path.relpath(self.repo.git_dir, os.getcwd())
-
-            self.io.tool_output(f"Files not tracked in {rel_repo_dir}:")
-            for fn in new_files:
-                self.io.tool_output(f" - {fn}")
-            if self.io.confirm_ask("Add them?"):
-                for relative_fname in new_files:
-                    self.repo.git.add(relative_fname)
-                    self.io.tool_output(f"Added {relative_fname} to the git repo")
-                show_files = ", ".join(new_files)
-                commit_message = f"Added new files to the git repo: {show_files}"
-                self.repo.git.commit("-m", commit_message, "--no-verify")
-                commit_hash = self.repo.head.commit.hexsha[:7]
-                self.io.tool_output(f"Commit {commit_hash} {commit_message}")
-            else:
-                self.io.tool_error("Skipped adding new files to the git repo.")
-                return
-
-    # fences are obfuscated so aider can modify this file!
     fences = [
         ("``" + "`", "``" + "`"),
         wrap_fence("source"),
@@ -344,6 +295,14 @@ class Coder:
 
         return prompt
 
+    def get_repo_map(self):
+        if not self.repo_map:
+            return
+
+        other_files = set(self.get_all_abs_files()) - set(self.abs_fnames)
+        repo_content = self.repo_map.get_repo_map(self.abs_fnames, other_files)
+        return repo_content
+
     def get_files_messages(self):
         all_content = ""
         if self.abs_fnames:
@@ -354,13 +313,11 @@ class Coder:
 
         all_content += files_content
 
-        other_files = set(self.get_all_abs_files()) - set(self.abs_fnames)
-        if self.repo_map:
-            repo_content = self.repo_map.get_repo_map(self.abs_fnames, other_files)
-            if repo_content:
-                if all_content:
-                    all_content += "\n"
-                all_content += repo_content
+        repo_content = self.get_repo_map()
+        if repo_content:
+            if all_content:
+                all_content += "\n"
+            all_content += repo_content
 
         files_messages = [
             dict(role="user", content=all_content),
@@ -389,30 +346,53 @@ class Coder:
                     return
 
             except KeyboardInterrupt:
-                self.num_control_c += 1
-                if self.num_control_c >= 2:
-                    break
-                self.io.tool_error("^C again or /exit to quit")
+                self.keyboard_interrupt()
             except EOFError:
                 return
 
-    def should_dirty_commit(self, inp):
-        is_commit_command = inp and inp.startswith("/commit")
-        if is_commit_command:
+    def keyboard_interrupt(self):
+        now = time.time()
+
+        thresh = 2  # seconds
+        if self.last_keyboard_interrupt and now - self.last_keyboard_interrupt < thresh:
+            self.io.tool_error("\n\n^C KeyboardInterrupt")
+            sys.exit()
+
+        self.io.tool_error("\n\n^C again to exit")
+
+        self.last_keyboard_interrupt = now
+
+    def summarize_start(self):
+        if not self.summarizer.too_big(self.done_messages):
             return
 
-        if not self.dirty_commits:
+        self.summarize_end()
+
+        if self.verbose:
+            self.io.tool_output("Starting to summarize chat history.")
+
+        self.summarizer_thread = threading.Thread(target=self.summarize_worker)
+        self.summarizer_thread.start()
+
+    def summarize_worker(self):
+        self.summarized_done_messages = self.summarizer.summarize(self.done_messages)
+        if self.verbose:
+            self.io.tool_output("Finished summarizing chat history.")
+
+    def summarize_end(self):
+        if self.summarizer_thread is None:
             return
-        if not self.repo:
-            return
-        if not self.repo.is_dirty():
-            return
-        if self.last_asked_for_commit_time >= self.get_last_modified():
-            return
-        return True
+
+        self.summarizer_thread.join()
+        self.summarizer_thread = None
+
+        self.done_messages = self.summarized_done_messages
+        self.summarized_done_messages = None
 
     def move_back_cur_messages(self, message):
         self.done_messages += self.cur_messages
+        self.summarize_start()
+
         if message:
             self.done_messages += [
                 dict(role="user", content=message),
@@ -428,14 +408,7 @@ class Coder:
             self.commands,
         )
 
-        self.num_control_c = 0
-
-        if self.should_dirty_commit(inp):
-            self.commit(ask=True, which="repo_files")
-
-            # files changed, move cur messages back behind the files messages
-            self.move_back_cur_messages(self.gpt_prompts.files_content_local_edits)
-
+        if self.should_dirty_commit(inp) and self.dirty_commit():
             if inp.strip():
                 self.io.tool_output("Use up-arrow to retry previous command:", inp)
             return
@@ -470,6 +443,7 @@ class Coder:
             dict(role="system", content=main_sys),
         ]
 
+        self.summarize_end()
         messages += self.done_messages
         messages += self.get_files_messages()
         messages += self.cur_messages
@@ -513,8 +487,6 @@ class Coder:
             content = ""
 
         if interrupted:
-            self.io.tool_error("\n\n^C KeyboardInterrupt")
-            self.num_control_c += 1
             content += "\n^C KeyboardInterrupt"
 
         self.io.tool_output()
@@ -524,10 +496,10 @@ class Coder:
 
         edited, edit_error = self.apply_updates()
         if edit_error:
+            self.update_cur_messages(set())
             return edit_error
 
-        # TODO: this shouldn't use content, should use self.partial_....
-        self.update_cur_messages(content, edited)
+        self.update_cur_messages(edited)
 
         if edited:
             if self.repo and self.auto_commits and not self.dry_run:
@@ -543,25 +515,17 @@ class Coder:
         if add_rel_files_message:
             return add_rel_files_message
 
-    def update_cur_messages(self, content, edited):
-        self.cur_messages += [dict(role="assistant", content=content)]
-
-    def auto_commit(self):
-        res = self.commit(history=self.cur_messages, prefix="aider: ")
-        if res:
-            commit_hash, commit_message = res
-            self.last_aider_commit_hash = commit_hash
-
-            saved_message = self.gpt_prompts.files_content_gpt_edits.format(
-                hash=commit_hash,
-                message=commit_message,
-            )
-        else:
-            if self.repo:
-                self.io.tool_error("Warning: no changes found in tracked files.")
-            saved_message = self.gpt_prompts.files_content_gpt_no_edits
-
-        return saved_message
+    def update_cur_messages(self, edited):
+        if self.partial_response_content:
+            self.cur_messages += [dict(role="assistant", content=self.partial_response_content)]
+        if self.partial_response_function_call:
+            self.cur_messages += [
+                dict(
+                    role="assistant",
+                    content=None,
+                    function_call=self.partial_response_function_call,
+                )
+            ]
 
     def check_for_file_mentions(self, content):
         words = set(word for word in content.split())
@@ -578,6 +542,9 @@ class Coder:
         mentioned_rel_fnames = set()
         fname_to_rel_fnames = {}
         for rel_fname in addable_rel_fnames:
+            if rel_fname in words:
+                mentioned_rel_fnames.add(str(rel_fname))
+
             fname = os.path.basename(rel_fname)
             if fname not in fname_to_rel_fnames:
                 fname_to_rel_fnames[fname] = []
@@ -601,36 +568,7 @@ class Coder:
 
         return prompts.added_files.format(fnames=", ".join(mentioned_rel_fnames))
 
-    @backoff.on_exception(
-        backoff.expo,
-        (
-            Timeout,
-            APIError,
-            ServiceUnavailableError,
-            RateLimitError,
-            requests.exceptions.ConnectionError,
-        ),
-        max_tries=5,
-        on_backoff=lambda details: print(f"Retry in {details['wait']} seconds."),
-    )
-    def send_with_retries(self, model, messages, functions):
-        kwargs = dict(
-            model=model,
-            messages=messages,
-            temperature=0,
-            stream=self.stream,
-        )
-        if functions is not None:
-            kwargs["functions"] = self.functions
-
-        # Generate SHA1 hash of kwargs and append it to chat_completion_call_hashes
-        hash_object = hashlib.sha1(json.dumps(kwargs, sort_keys=True).encode())
-        self.chat_completion_call_hashes.append(hash_object.hexdigest())
-
-        res = openai.ChatCompletion.create(**kwargs)
-        return res
-
-    def send(self, messages, model=None, silent=False, functions=None):
+    def send(self, messages, model=None, functions=None):
         if not model:
             model = self.main_model.name
 
@@ -639,26 +577,28 @@ class Coder:
 
         interrupted = False
         try:
-            completion = self.send_with_retries(model, messages, functions)
+            hash_object, completion = send_with_retries(model, messages, functions, self.stream)
+            self.chat_completion_call_hashes.append(hash_object.hexdigest())
+
             if self.stream:
-                self.show_send_output_stream(completion, silent)
+                self.show_send_output_stream(completion)
             else:
-                self.show_send_output(completion, silent)
+                self.show_send_output(completion)
         except KeyboardInterrupt:
+            self.keyboard_interrupt()
             interrupted = True
 
-        if not silent:
-            if self.partial_response_content:
-                self.io.ai_output(self.partial_response_content)
-            elif self.partial_response_function_call:
-                # TODO: push this into subclasses
-                args = self.parse_partial_args()
-                if args:
-                    self.io.ai_output(json.dumps(args, indent=4))
+        if self.partial_response_content:
+            self.io.ai_output(self.partial_response_content)
+        elif self.partial_response_function_call:
+            # TODO: push this into subclasses
+            args = self.parse_partial_args()
+            if args:
+                self.io.ai_output(json.dumps(args, indent=4))
 
         return interrupted
 
-    def show_send_output(self, completion, silent):
+    def show_send_output(self, completion):
         if self.verbose:
             print(completion)
 
@@ -705,11 +645,11 @@ class Coder:
             show_resp = Text(show_resp or "<no response>")
 
         self.io.console.print(show_resp)
-        self.io.console.print(tokens)
+        self.io.tool_output(tokens)
 
-    def show_send_output_stream(self, completion, silent):
+    def show_send_output_stream(self, completion):
         live = None
-        if self.pretty and not silent:
+        if self.pretty:
             live = Live(vertical_overflow="scroll")
 
         try:
@@ -719,6 +659,9 @@ class Coder:
             LOG.debug('','Choices')
 
             for chunk in completion:
+                if len(chunk.choices) == 0:
+                    continue
+
 
                 for choice in chunk["choices"]:
                    try:
@@ -747,14 +690,11 @@ class Coder:
                     if text:
                         self.partial_response_content += text
                 except AttributeError:
-                    pass
-
-                if silent:
-                    continue
+                    text = None
 
                 if self.pretty:
                     self.live_incremental_response(live, False)
-                else:
+                elif text:
                     sys.stdout.write(text)
                     sys.stdout.flush()
         finally:
@@ -773,145 +713,6 @@ class Coder:
     def render_incremental_response(self, final):
         return self.partial_response_content
 
-    def get_context_from_history(self, history):
-        context = ""
-        if history:
-            for msg in history:
-                context += "\n" + msg["role"].upper() + ": " + msg["content"] + "\n"
-        return context
-
-    def get_commit_message(self, diffs, context):
-        if len(diffs) >= 4 * 1024 * 4:
-            self.io.tool_error(
-                f"Diff is too large for {models.GPT35.name} to generate a commit message."
-            )
-            return
-
-        diffs = "# Diffs:\n" + diffs
-
-        messages = [
-            dict(role="system", content=prompts.commit_system),
-            dict(role="user", content=context + diffs),
-        ]
-
-        try:
-            interrupted = self.send(
-                messages,
-                model=models.GPT35.name,
-                silent=True,
-            )
-        except openai.error.InvalidRequestError:
-            self.io.tool_error(
-                f"Failed to generate commit message using {models.GPT35.name} due to an invalid"
-                " request."
-            )
-            return
-
-        commit_message = self.partial_response_content
-        commit_message = commit_message.strip()
-        if commit_message and commit_message[0] == '"' and commit_message[-1] == '"':
-            commit_message = commit_message[1:-1].strip()
-
-        if interrupted:
-            self.io.tool_error(
-                f"Unable to get commit message from {models.GPT35.name}. Use /commit to try again."
-            )
-            return
-
-        return commit_message
-
-    def get_diffs(self, *args):
-        if self.pretty:
-            args = ["--color"] + list(args)
-
-        diffs = self.repo.git.diff(*args)
-        return diffs
-
-    def commit(self, history=None, prefix=None, ask=False, message=None, which="chat_files"):
-        repo = self.repo
-        if not repo:
-            return
-
-        if not repo.is_dirty():
-            return
-
-        def get_dirty_files_and_diffs(file_list):
-            diffs = ""
-            relative_dirty_files = []
-            for fname in file_list:
-                relative_fname = self.get_rel_fname(fname)
-                relative_dirty_files.append(relative_fname)
-
-                try:
-                    current_branch_commit_count = len(
-                        list(self.repo.iter_commits(self.repo.active_branch))
-                    )
-                except git.exc.GitCommandError:
-                    current_branch_commit_count = None
-
-                if not current_branch_commit_count:
-                    continue
-
-                these_diffs = self.get_diffs("HEAD", "--", relative_fname)
-
-                if these_diffs:
-                    diffs += these_diffs + "\n"
-
-            return relative_dirty_files, diffs
-
-        if which == "repo_files":
-            all_files = [os.path.join(self.root, f) for f in self.get_all_relative_files()]
-            relative_dirty_fnames, diffs = get_dirty_files_and_diffs(all_files)
-        elif which == "chat_files":
-            relative_dirty_fnames, diffs = get_dirty_files_and_diffs(self.abs_fnames)
-        else:
-            raise ValueError(f"Invalid value for 'which': {which}")
-
-        if self.show_diffs or ask:
-            # don't use io.tool_output() because we don't want to log or further colorize
-            print(diffs)
-
-        context = self.get_context_from_history(history)
-        if message:
-            commit_message = message
-        else:
-            commit_message = self.get_commit_message(diffs, context)
-
-        if not commit_message:
-            commit_message = "work in progress"
-
-        if prefix:
-            commit_message = prefix + commit_message
-
-        if ask:
-            if which == "repo_files":
-                self.io.tool_output("Git repo has uncommitted changes.")
-            else:
-                self.io.tool_output("Files have uncommitted changes.")
-
-            res = self.io.prompt_ask(
-                "Commit before the chat proceeds [y/n/commit message]?",
-                default=commit_message,
-            ).strip()
-            self.last_asked_for_commit_time = self.get_last_modified()
-
-            self.io.tool_output()
-
-            if res.lower() in ["n", "no"]:
-                self.io.tool_error("Skipped commmit.")
-                return
-            if res.lower() not in ["y", "yes"] and res:
-                commit_message = res
-
-        repo.git.add(*relative_dirty_fnames)
-
-        full_commit_message = commit_message + "\n\n# Aider chat conversation:\n\n" + context
-        repo.git.commit("-m", full_commit_message, "--no-verify")
-        commit_hash = repo.head.commit.hexsha[:7]
-        self.io.tool_output(f"Commit {commit_hash} {commit_message}")
-
-        return commit_hash, commit_message
-
     def get_rel_fname(self, fname):
         return os.path.relpath(fname, self.root)
 
@@ -921,7 +722,7 @@ class Coder:
 
     def get_all_relative_files(self):
         if self.repo:
-            files = self.get_tracked_files()
+            files = self.repo.get_tracked_files()
         else:
             files = self.get_inchat_relative_files()
 
@@ -933,10 +734,10 @@ class Coder:
         return files
 
     def get_last_modified(self):
-        files = self.get_all_abs_files()
+        files = [Path(fn) for fn in self.get_all_abs_files() if Path(fn).exists()]
         if not files:
             return 0
-        return max(Path(path).stat().st_mtime for path in files)
+        return max(path.stat().st_mtime for path in files)
 
     def get_addable_relative_files(self):
         return set(self.get_all_relative_files()) - set(self.get_inchat_relative_files())
@@ -965,29 +766,21 @@ class Coder:
 
         # Check if the file is already in the repo
         if self.repo:
-            tracked_files = set(self.get_tracked_files())
+            tracked_files = set(self.repo.get_tracked_files())
             relative_fname = self.get_rel_fname(full_path)
             if relative_fname not in tracked_files and self.io.confirm_ask(f"Add {path} to git?"):
                 if not self.dry_run:
-                    self.repo.git.add(full_path)
+                    self.repo.repo.git.add(full_path)
 
         if write_content:
             self.io.write_text(full_path, write_content)
 
         return full_path
 
-    def get_tracked_files(self):
-        if not self.repo:
-            return []
-        # convert to appropriate os.sep, since git always normalizes to /
-        files = set(self.repo.git.ls_files().splitlines())
-        res = set(str(Path(PurePosixPath(path))) for path in files)
-        return res
-
     apply_update_errors = 0
 
     def apply_updates(self):
-        max_apply_update_errors = 2
+        max_apply_update_errors = 3
 
         try:
             edited = self.update_files()
@@ -1051,6 +844,72 @@ class Coder:
             return json.loads(data + '"}]}')
         except JSONDecodeError:
             pass
+
+    # commits...
+
+    def get_context_from_history(self, history):
+        context = ""
+        if history:
+            for msg in history:
+                context += "\n" + msg["role"].upper() + ": " + msg["content"] + "\n"
+        return context
+
+    def auto_commit(self):
+        context = self.get_context_from_history(self.cur_messages)
+        res = self.repo.commit(context=context, prefix="aider: ")
+        if res:
+            commit_hash, commit_message = res
+            self.last_aider_commit_hash = commit_hash
+
+            return self.gpt_prompts.files_content_gpt_edits.format(
+                hash=commit_hash,
+                message=commit_message,
+            )
+
+        self.io.tool_output("No changes made to git tracked files.")
+        return self.gpt_prompts.files_content_gpt_no_edits
+
+    def should_dirty_commit(self, inp):
+        cmds = self.commands.matching_commands(inp)
+        if cmds:
+            matching_commands, _, _ = cmds
+            if len(matching_commands) == 1:
+                cmd = matching_commands[0][1:]
+                if cmd in "add clear commit diff drop exit help ls tokens".split():
+                    return
+
+        if self.last_asked_for_commit_time >= self.get_last_modified():
+            return
+        return True
+
+    def dirty_commit(self):
+        if not self.dirty_commits:
+            return
+        if not self.repo:
+            return
+        if not self.repo.is_dirty():
+            return
+
+        self.io.tool_output("Git repo has uncommitted changes.")
+        self.repo.show_diffs(self.pretty)
+        self.last_asked_for_commit_time = self.get_last_modified()
+        res = self.io.prompt_ask(
+            "Commit before the chat proceeds [y/n/commit message]?",
+            default="y",
+        ).strip()
+        if res.lower() in ["n", "no"]:
+            self.io.tool_error("Skipped commmit.")
+            return
+        if res.lower() in ["y", "yes"]:
+            message = None
+        else:
+            message = res.strip()
+
+        self.repo.commit(message=message)
+
+        # files changed, move cur messages back behind the files messages
+        self.move_back_cur_messages(self.gpt_prompts.files_content_local_edits)
+        return True
 
 
 def check_model_availability(main_model):

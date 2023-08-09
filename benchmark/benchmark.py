@@ -18,6 +18,7 @@ import git
 import lox
 import matplotlib.pyplot as plt
 import numpy as np
+import openai
 import pandas as pd
 import prompts
 import typer
@@ -507,11 +508,12 @@ def run_test(
     show_fnames = ",".join(map(str, fnames))
     print("fnames:", show_fnames)
 
+    openai.api_key = os.environ["OPENAI_API_KEY"]
+
     coder = Coder.create(
         main_model,
         edit_format,
         io,
-        os.environ["OPENAI_API_KEY"],
         fnames=fnames,
         use_git=False,
         stream=False,
@@ -529,7 +531,7 @@ def run_test(
             coder.run(with_message=instructions)
         dur += time.time() - start
 
-        if coder.num_control_c:
+        if coder.last_keyboard_interrupt:
             raise KeyboardInterrupt
 
         if no_unit_tests:
