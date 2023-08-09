@@ -135,28 +135,38 @@ class Commands:
         self.io.tool_output()
 
         width = 8
+        cost_width = 7
 
         def fmt(v):
             return format(int(v), ",").rjust(width)
 
         col_width = max(len(row[1]) for row in res)
 
+        cost_pad = " " * cost_width
         total = 0
+        total_cost = 0.0
         for tk, msg, tip in res:
             total += tk
+            cost = tk * (self.coder.main_model.prompt_price / 1000)
+            total_cost += cost
             msg = msg.ljust(col_width)
-            self.io.tool_output(f"{fmt(tk)} {msg} {tip}")
+            self.io.tool_output(f"${cost:5.2f} {fmt(tk)} {msg} {tip}")
 
-        self.io.tool_output("=" * width)
-        self.io.tool_output(f"{fmt(total)} tokens total")
+        self.io.tool_output("=" * (width + cost_width + 1))
+        self.io.tool_output(f"${total_cost:5.2f} {fmt(total)} tokens total")
 
         limit = self.coder.main_model.max_context_tokens
         remaining = limit - total
-        if remaining > 0:
-            self.io.tool_output(f"{fmt(remaining)} tokens remaining in context window")
+        if remaining > 1024:
+            self.io.tool_output(f"{cost_pad}{fmt(remaining)} tokens remaining in context window")
+        elif remaining > 0:
+            self.io.tool_error(
+                f"{cost_pad}{fmt(remaining)} tokens remaining in context window (use /drop or"
+                " /clear to make space)"
+            )
         else:
-            self.io.tool_error(f"{fmt(remaining)} tokens remaining, window exhausted!")
-        self.io.tool_output(f"{fmt(limit)} tokens max context window size")
+            self.io.tool_error(f"{cost_pad}{fmt(remaining)} tokens remaining, window exhausted!")
+        self.io.tool_output(f"{cost_pad}{fmt(limit)} tokens max context window size")
 
     def cmd_undo(self, args):
         "Undo the last git commit if it was done by aider"
@@ -171,10 +181,10 @@ class Commands:
             )
             return
 
-        local_head = self.coder.repo.git.rev_parse("HEAD")
-        current_branch = self.coder.repo.active_branch.name
+        local_head = self.coder.repo.repo.git.rev_parse("HEAD")
+        current_branch = self.coder.repo.repo.active_branch.name
         try:
-            remote_head = self.coder.repo.git.rev_parse(f"origin/{current_branch}")
+            remote_head = self.coder.repo.repo.git.rev_parse(f"origin/{current_branch}")
             has_origin = True
         except git.exc.GitCommandError:
             has_origin = False
@@ -187,14 +197,14 @@ class Commands:
                 )
                 return
 
-        last_commit = self.coder.repo.head.commit
+        last_commit = self.coder.repo.repo.head.commit
         if (
             not last_commit.message.startswith("aider:")
             or last_commit.hexsha[:7] != self.coder.last_aider_commit_hash
         ):
             self.io.tool_error("The last commit was not made by aider in this chat session.")
             return
-        self.coder.repo.git.reset("--hard", "HEAD~1")
+        self.coder.repo.repo.git.reset("--hard", "HEAD~1")
         self.io.tool_output(
             f"{last_commit.message.strip()}\n"
             f"The above commit {self.coder.last_aider_commit_hash} "
@@ -215,7 +225,11 @@ class Commands:
             return
 
         commits = f"{self.coder.last_aider_commit_hash}~1"
-        diff = self.coder.get_diffs(commits, self.coder.last_aider_commit_hash)
+        diff = self.coder.repo.get_diffs(
+            self.coder.pretty,
+            commits,
+            self.coder.last_aider_commit_hash,
+        )
 
         # don't use io.tool_output() because we don't want to log or further colorize
         print(diff)
@@ -232,11 +246,13 @@ class Commands:
 
         matched_files = []
         for fn in raw_matched_files:
-            matched_files += expand_subdir(fn.relative_to(self.coder.root))
+            matched_files += expand_subdir(fn)
+
+        matched_files = [str(Path(fn).relative_to(self.coder.root)) for fn in matched_files]
 
         # if repo, filter against it
         if self.coder.repo:
-            git_files = self.coder.get_tracked_files()
+            git_files = self.coder.repo.get_tracked_files()
             matched_files = [fn for fn in matched_files if str(fn) in git_files]
 
         res = list(map(str, matched_files))
@@ -247,7 +263,7 @@ class Commands:
 
         added_fnames = []
         git_added = []
-        git_files = self.coder.get_tracked_files()
+        git_files = self.coder.repo.get_tracked_files() if self.coder.repo else []
 
         all_matched_files = set()
         for word in args.split():
@@ -274,7 +290,7 @@ class Commands:
             abs_file_path = self.coder.abs_root_path(matched_file)
 
             if self.coder.repo and matched_file not in git_files:
-                self.coder.repo.git.add(abs_file_path)
+                self.coder.repo.repo.git.add(abs_file_path)
                 git_added.append(matched_file)
 
             if abs_file_path in self.coder.abs_fnames:
@@ -291,8 +307,8 @@ class Commands:
         if self.coder.repo and git_added:
             git_added = " ".join(git_added)
             commit_message = f"aider: Added {git_added}"
-            self.coder.repo.git.commit("-m", commit_message, "--no-verify")
-            commit_hash = self.coder.repo.head.commit.hexsha[:7]
+            self.coder.repo.repo.git.commit("-m", commit_message, "--no-verify")
+            commit_hash = self.coder.repo.repo.head.commit.hexsha[:7]
             self.io.tool_output(f"Commit {commit_hash} {commit_message}")
 
         if not added_fnames:
@@ -326,7 +342,7 @@ class Commands:
                 self.io.tool_error(f"No files matched '{word}'")
 
             for matched_file in matched_files:
-                abs_fname = str(Path(matched_file).resolve())
+                abs_fname = self.coder.abs_root_path(matched_file)
                 if abs_fname in self.coder.abs_fnames:
                     self.coder.abs_fnames.remove(abs_fname)
                     self.io.tool_output(f"Removed {matched_file} from the chat")
@@ -426,6 +442,7 @@ def expand_subdir(file_path):
         yield file_path
         return
 
-    for file in file_path.rglob("*"):
-        if file.is_file():
-            yield str(file)
+    if file_path.is_dir():
+        for file in file_path.rglob("*"):
+            if file.is_file():
+                yield str(file)

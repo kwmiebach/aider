@@ -20,15 +20,6 @@ class WholeFileCoder(Coder):
         else:
             self.cur_messages += [dict(role="assistant", content=self.partial_response_content)]
 
-    def get_context_from_history(self, history):
-        context = ""
-        if history:
-            context += "# Context:\n"
-            for msg in history:
-                if msg["role"] == "user":
-                    context += msg["role"].upper() + ": " + msg["content"] + "\n"
-        return context
-
     def render_incremental_response(self, final):
         try:
             return self.update_files(mode="diff")
@@ -71,6 +62,8 @@ class WholeFileCoder(Coder):
                 if i > 0:
                     fname_source = "block"
                     fname = lines[i - 1].strip()
+                    fname = fname.strip("*")  # handle **filename.py**
+
                     # Did gpt prepend a bogus dir? It especially likes to
                     # include the path/to prefix from the one-shot example in
                     # the prompt.
