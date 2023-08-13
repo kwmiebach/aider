@@ -8,7 +8,7 @@ import git
 import tiktoken
 from prompt_toolkit.completion import Completion
 
-from aider import prompts
+from aider import prompts, voice
 
 from .dump import dump  # noqa: F401
 
@@ -433,6 +433,23 @@ class Commands:
                 self.io.tool_output(f"{cmd} {description}")
             else:
                 self.io.tool_output(f"{cmd} No description available.")
+
+    def cmd_voice(self, args):
+        "Record and transcribe voice input"
+        v = voice.Voice()
+
+        if not v.is_audio_available():
+            self.io.tool_error("Unable to import `sounddevice`, is portaudio installed?")
+            return
+
+        text = v.record_and_transcribe()
+        if text:
+            self.io.add_to_file_history(text)
+            print()
+            self.io.user_input(text, log_only=False)
+            print()
+
+        return text
 
 
 def expand_subdir(file_path):
