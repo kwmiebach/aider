@@ -14,6 +14,8 @@ class EditBlockCoder(Coder):
             prompts_override_edit_block = kwargs['prompts_override'].get('edit_block_prompts',dict())
             if 'main_system' in prompts_override_edit_block:
                 self.gpt_prompts.main_system = prompts_override_edit_block['main_system']
+            if 'system_reminder' in prompts_override_edit_block:
+                self.gpt_prompts.system_reminder = prompts_override_edit_block['system_reminder']
             del kwargs['prompts_override'] # do not pass to superclass
         super().__init__(*args, **kwargs)
 

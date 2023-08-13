@@ -382,6 +382,12 @@ def main(argv=None, input=None, output=None, force_git_root=None):
         default=None,
     )
     other_group.add_argument(
+        "--edit-block-prompts-system-reminder",
+        metavar="PROMPT_SYSTEM_REMINDEER",
+        help="Specify a string that overrides the system reminder prompt.",
+        default=None,
+    )
+    other_group.add_argument(
         "-c",
         "--config",
         is_config_file=True,
@@ -508,7 +514,13 @@ def main(argv=None, input=None, output=None, force_git_root=None):
     # Override certain prompts from configuration
     prompts_override = dict()
     if args.edit_block_prompts_main_system is not None:
-        prompts_override['edit_block_prompts'] = dict(main_system = args.edit_block_prompts_main_system)
+        prompts_override['edit_block_prompts'] = dict(
+            main_system = args.edit_block_prompts_main_system
+        )
+    if args.edit_block_prompts_system_reminder is not None:
+        prompts_override['edit_block_prompts'] = dict(
+            system_reminder = args.edit_block_prompts_system_reminder
+        )
 
     try:
         coder = Coder.create(
