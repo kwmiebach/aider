@@ -139,6 +139,12 @@ def main(argv=None, input=None, output=None, force_git_root=None):
         help="the directory of a git repo, or a list of files to edit with GPT (optional)",
     )
     core_group.add_argument(
+        "--files-local",
+        metavar="FILE_LOCAL",
+        nargs="*",
+        help="Additional list of files to edit with GPT (optional)",
+    )
+    core_group.add_argument(
         "--openai-api-key",
         metavar="OPENAI_API_KEY",
         help="Specify the OpenAI API key",
@@ -406,10 +412,11 @@ def main(argv=None, input=None, output=None, force_git_root=None):
         dry_run=args.dry_run,
     )
 
-    fnames = [str(Path(fn).resolve()) for fn in args.files]
-    if len(args.files) > 1:
+    args_files_all = args.files + args.files_local
+    fnames = [str(Path(fn).resolve()) for fn in args_files_all]
+    if len(args_files_all) > 1:
         good = True
-        for fname in args.files:
+        for fname in args_files_all:
             if Path(fname).is_dir():
                 io.tool_error(f"{fname} is a directory, not provided alone.")
                 good = False
@@ -420,13 +427,13 @@ def main(argv=None, input=None, output=None, force_git_root=None):
             return 1
 
     git_dname = None
-    if len(args.files) == 1:
-        if Path(args.files[0]).is_dir():
+    if len(args_files_all) == 1:
+        if Path(args_files_all[0]).is_dir():
             if args.git:
-                git_dname = str(Path(args.files[0]).resolve())
+                git_dname = str(Path(args_files_all[0]).resolve())
                 fnames = []
             else:
-                io.tool_error(f"{args.files[0]} is a directory, but --no-git selected.")
+                io.tool_error(f"{args_files_all[0]} is a directory, but --no-git selected.")
                 return 1
 
     # We can't know the git repo for sure until after parsing the args.
