@@ -58,6 +58,14 @@ def send_with_retries(model, messages, functions, stream):
     if not stream and CACHE is not None and key in CACHE:
         return hash_object, CACHE[key]
 
+    import aider.globalstore
+    args = aider.globalstore.args
+    if args.log_messages:
+        from aider.log import log_codeblock_md
+        log_codeblock_md(
+            messages, args.log_messages_file,'Sending messages to AI'
+        )
+
     res = openai.ChatCompletion.create(**kwargs)
 
     if not stream and CACHE is not None:
