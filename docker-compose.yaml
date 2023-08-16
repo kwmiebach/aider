@@ -5,15 +5,16 @@ services:
       context: .
       dockerfile: ./Dockerfile  
     volumes:
-      # Uncomment the following line for development
-      # but then we don't need the AIDER_WORKDIR.
+      # Uncomment for aider development:
       - .:/src
-      # ./workdir is for the app that we work on
-      # Most probably outside the aider directory.
+
+      # The project that we work on:
       - ${AIDER_WORKDIR}:${AIDER_WORKDIR_CONTAINER}
+
       # Make local user's git config available in 
       # the container but readonly:
       - ${HOME}/.gitconfig:/home/appuser/.gitconfig:ro
+
     working_dir: ${AIDER_WORKDIR_CONTAINER}
 
     command: tail -f /dev/null
