@@ -43,3 +43,18 @@ def debug(data, title=None):
         f.write('\n')
         f.write(full_message + '\n')
         f.write('\n')
+
+def log_codeblock_md(data, filename, header=None):
+    # Log as markdown.
+    # Header and a code block.
+    from pprint import pformat as pf
+    output = pf(data)
+    with open(filename, 'a') as f:
+        f.write('\n')
+        if header is not None:
+            f.write('##### ' + header)
+            f.write('\n\n')
+        f.write('```\n')
+        f.write(output)
+        f.write('\n```')
+        f.write('\n\n')
