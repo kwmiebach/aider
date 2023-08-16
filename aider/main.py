@@ -412,7 +412,9 @@ def main(argv=None, input=None, output=None, force_git_root=None):
         dry_run=args.dry_run,
     )
 
-    args_files_all = args.files + args.files_local
+    files = [] if args.files is None else args.files
+    files_local = [] if args.files_local is None else args.files_local
+    args_files_all = files + files_local
     fnames = [str(Path(fn).resolve()) for fn in args_files_all]
     if len(args_files_all) > 1:
         good = True
