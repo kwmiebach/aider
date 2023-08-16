@@ -363,6 +363,24 @@ def main(argv=None, input=None, output=None, force_git_root=None):
         default=False,
     )
     other_group.add_argument(
+        '--log-messages',
+        help=(
+            "Enable logging of chat messages to a file (debug)."
+            " See --log-messages-file for setting the filename."
+        ),
+        action="store_true",
+    )
+    other_group.add_argument(
+        '--log-messages-file',
+        help=(
+            "Set filename and path for the chat messages log file (debug). Use"
+            " --log-messages to enable. Defaults to ./.aider.chat.history.md and"
+            " keeping the default has the advantage that chat messages and the"
+            " AI's responses are in the same file and alternate."
+        ),
+        default='./.aider.chat.history.md',
+    )
+    other_group.add_argument(
         "--show-repo-map",
         action="store_true",
         help="Print the repo map and exit (debug)",
@@ -488,6 +506,15 @@ def main(argv=None, input=None, output=None, force_git_root=None):
         io.tool_output("Option settings:")
         for arg, val in sorted(vars(args).items()):
             io.tool_output(f"  - {arg}: {scrub_sensitive_info(str(val))}")
+
+    import aider.globalstore
+    if args.log_messages:
+        # Store in globalstore, so it is accessible from anywhere
+        aider.globalstore.args.log_messages = True
+        aider.globalstore.args.log_messages_file = args.log_messages_file
+    else:
+        aider.globalstore.args.log_messages = False
+
 
     io.tool_output(*sys.argv, log_only=True)
 
