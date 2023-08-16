@@ -10,10 +10,12 @@ if which aider >/dev/null 2>&1; then
     echo "The 'aider' command is already available."
     # Further checks for editable or regular mode see below
 else
-    echo "The 'aider' command is not installed. Installing for development from $SOURCE_DIR ..."
+    echo "The 'aider' command is not installed. Installing for development in $SOURCE_DIR ..."
     cd $SOURCE_DIR
     pip install -e .
     echo "... done."
+    echo "The aider package was installed in editable mode. Any changes made to"
+    echo "the source will be directly reflected without needing a reinstall."
     exit 0
 fi
 
