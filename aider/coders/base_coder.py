@@ -81,6 +81,9 @@ class Coder:
         if edit_format is None:
             edit_format = main_model.edit_format
 
+        from aider.log import log_text_md
+        log_text_md('edit_format = ' + edit_format)
+
         if edit_format == "diff":
             return EditBlockCoder(main_model, io, **kwargs)
         elif edit_format == "whole":
