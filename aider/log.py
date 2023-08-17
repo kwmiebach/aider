@@ -44,7 +44,18 @@ def debug(data, title=None):
         f.write(full_message + '\n')
         f.write('\n')
 
-def log_codeblock_md(data, filename, header=None):
+def log_text_md(data, filename='./.aider.chat.history.md', header=None):
+    # Log as markdown.
+    # Header and a code block.
+    with open(filename, 'a') as f:
+        f.write('\n')
+        if header is not None:
+            f.write('##### ' + header)
+            f.write('\n\n')
+        f.write(str(data))
+        f.write('\n\n')
+
+def log_codeblock_md(data, filename='./.aider.chat.history.md', header=None):
     # Log as markdown.
     # Header and a code block.
     from pprint import pformat as pf
