@@ -541,16 +541,13 @@ def main(argv=None, input=None, output=None, force_git_root=None):
             io.tool_output(f"Setting openai.{mod_key}={val}")
 
     # Override certain prompts from configuration
-    prompts_override = dict()
+    prompts_override = dict(edit_block_prompts=dict())
     if args.edit_block_prompts_main_system is not None:
-        prompts_override['edit_block_prompts'] = dict(
-            main_system = args.edit_block_prompts_main_system
-        )
+        prompts_override['edit_block_prompts']['main_system'] = args.edit_block_prompts_main_system
     if args.edit_block_prompts_system_reminder is not None:
-        prompts_override['edit_block_prompts'] = dict(
-            system_reminder = args.edit_block_prompts_system_reminder
-        )
+        prompts_override['edit_block_prompts']['system_reminder'] = args.edit_block_prompts_system_reminder
 
+    from aider.coders import Coder
     try:
         coder = Coder.create(
             main_model,
