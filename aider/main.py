@@ -114,12 +114,19 @@ def main(argv=None, input=None, output=None, force_git_root=None):
     default_config_files.append(Path.home() / conf_fname)  # homedir
 
     # Include additional config file 'local' if present
-    conf_local_fname = Path(".aider.conf.local.yml")
-    try:
-        conf_local = Path(conf_local_fname).resolve()
-        default_config_files.append(conf_local)
-    except FileNotFoundError:
-        pass
+    # But check env var 'AIDER_CONFIG_LOCAL_IGNORE' first
+    import os
+    AIDER_CONFIG_LOCAL_IGNORE = os.environ.get('AIDER_CONFIG_LOCAL_IGNORE', '').lower()
+    if AIDER_CONFIG_LOCAL_IGNORE in ('1', 'true', 'yes'):
+        print('Ignoring local config file.')
+    else:
+        print('Applying local config file.')
+        conf_local_fname = Path(".aider.conf.local.yml")
+        try:
+            conf_local = Path(conf_local_fname).resolve()
+            default_config_files.append(conf_local)
+        except FileNotFoundError:
+            pass
 
     default_config_files = list(map(str, default_config_files))
 
