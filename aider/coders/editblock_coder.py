@@ -53,7 +53,11 @@ class EditBlockCoder(Coder):
         edited = set()
 
         user_abort_all = False
-        user_abort_none = False
+        user_abort_current = False
+        if self.auto_commit:
+            user_abort_none = True
+        else:
+            user_abort_none = False
         for current_ind, (path, original, updated) in enumerate(edits):
 
             full_path = self.allowed_to_edit(path)
