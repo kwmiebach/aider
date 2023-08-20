@@ -1,33 +1,59 @@
-from fastapi import FastAPI, HTTPException
-import subprocess
-
-app = FastAPI()
-
 print('''Starting server...
 
-Warning: The http endpoint allows arbitrary code execution\
+Warning: The http endpoint allows arbitrary code execution
 on the host. This is a proof of concept. 
+
 TODO:
-Add authentication.
-Only allow specific commands.
-on predefined endpoints.
+
+Add https and authentication.
+Only allow specific commands on predefined endpoints.
 Run the server in a container and/or in an isolated network.
-'''
+      
+To test, run this command in a terminal:
+
+curl -X POST -H "Content-Type: application/json" -d '{"command":"date"}' http://localhost:8000/run
+     
+''')
+
+from pprint import pprint as pp
+import fastapi
+
+app = fastapi.FastAPI()
+@app.get("/ping")
+async def ping():
+    return {
+        "ok": True,
+        "msg": "pong"
+    }
 
 @app.post("/run")
-async def run_command(command: str):
-    process = subprocess.Popen(command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    stdout, stderr = process.communicate()
-    exit_code = process.wait()
+async def run_command(request: fastapi.Request):
+
+    request_json_data = await request.json()
+    command = request_json_data.get("command",None)
+    if command is None:
+        raise fastapi.HTTPException(status_code=400, detail="Command not provided.")
+
+    import subprocess
+    posix_sub_process = subprocess.Popen(
+        command,
+        shell=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    stdout, stderr = posix_sub_process.communicate()
+    posix_exit_code = posix_sub_process.wait()
 
     response_content = {
         "stdout": stdout.decode(),
         "stderr": stderr.decode(),
-        "exit_code": exit_code
+        "posix_exit_code": posix_exit_code
     }
 
-    if exit_code == 0:
+    if posix_exit_code == 0:
+        pp(response_content)
         return response_content
     else:
-        raise HTTPException(status_code=500, detail=response_content)
-
+        pp(response_content)
+        return response_content
+        #raise fastapi.HTTPException(status_code=500, detail=response_content)
