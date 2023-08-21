@@ -9,7 +9,7 @@ Add https and authentication.
 Only allow specific commands on predefined endpoints.
 Run the server in a container and/or in an isolated network.
       
-To test, run this command in a terminal:
+To test the service, run this command in a terminal:
 
 curl -X POST -H "Content-Type: application/json" -d '{"command":"date"}' http://localhost:8000/run
      
@@ -36,12 +36,12 @@ async def run_command(request: fastapi.Request):
     
     aider -m \"Write a hello world program in python\"
 
-    The advantage is that the rest service does not depend so much on the
-    internal aider code structure, 
+    The advantage is that the rest service does not depend on the
+    internal aider source code.
 
     A disadvantage is that this is very unsecure, so additional measures like
     https, authentication and maybe restricting or parsing the command
-    is absolutely necessary. See laso the TODO above.
+    are absolutely necessary. See also the TODO at the top of this file.
     """
 
     request_json_data = await request.json()
