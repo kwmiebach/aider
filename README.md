@@ -142,6 +142,13 @@ Aider has some ability to help GPT figure out which files to edit all by itself,
 Aider supports all of OpenAI's chat models.
 You can choose a model with the `--model` command line argument.
 
+See file `aider/models.py` at the end. Example values:
+
+* `gpt-4`
+* `gpt-3.5-turbo`
+* `gpt-3.5-turbo-16k`
+
+
 You should probably use GPT-4 if you can. For more details see the
 [FAQ entry that compares GPT-4 vs GPT-3.5](https://aider.chat/docs/faq.html#gpt-4-vs-gpt-35).
 
