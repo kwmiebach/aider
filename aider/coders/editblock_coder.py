@@ -9,6 +9,7 @@ from .editblock_prompts import EditBlockPrompts
 
 
 class EditBlockCoder(Coder):
+
     def __init__(self, *args, **kwargs):
         self.gpt_prompts = EditBlockPrompts()
         if 'prompts_override' in kwargs:
@@ -20,7 +21,16 @@ class EditBlockCoder(Coder):
             del kwargs['prompts_override'] # do not pass to superclass
         super().__init__(*args, **kwargs)
 
-    def update_files(self):
+    def get_edits(self):
+
+        content = self.partial_response_content
+
+        # might raise ValueError for malformed ORIG/UPD blocks
+        edits = list(find_original_update_blocks(content))
+
+        return edits
+    
+    def apply_edits(self, edits):
 
         def user_ask_replace(
             full_path, content, original, updated, current_ind, total_edits
@@ -44,11 +54,6 @@ class EditBlockCoder(Coder):
                     return True, False, False
                 elif answer == "q":
                     return True, True, False
-                
-        content = self.partial_response_content
-
-        # might raise ValueError for malformed ORIG/UPD blocks
-        edits = list(find_original_update_blocks(content))
 
         edited = set()
 
@@ -58,6 +63,7 @@ class EditBlockCoder(Coder):
             user_abort_none = True
         else:
             user_abort_none = False
+
         for current_ind, (path, original, updated) in enumerate(edits):
 
             full_path = self.allowed_to_edit(path)
@@ -69,10 +75,12 @@ class EditBlockCoder(Coder):
                 continue
 
             content = self.io.read_text(full_path)
+
             if not user_abort_none:
                 user_abort_current, user_abort_all, user_abort_none = user_ask_replace(
                     path, content, original, updated, current_ind, len(edits)
                 )
+
             if user_abort_current or user_abort_all:
                 self.io.tool_error(f"User rejected or postponed edit to {path}")
                 continue
@@ -80,8 +88,8 @@ class EditBlockCoder(Coder):
             content = do_replace(full_path, content, original, updated)
             if content:
                 self.io.write_text(full_path, content)
-                edited.add(path)
                 continue
+
             raise ValueError(f"""InvalidEditBlock: edit failed!
 
 {path} does not contain the *exact sequence* of HEAD lines you specified.
@@ -93,8 +101,6 @@ The HEAD block needs to be EXACTLY the same as the lines in {path} with nothing 
 ```
 {original}```
 """)
-
-        return edited
 
 
 def prep(content):

@@ -14,9 +14,16 @@ from .dump import dump  # noqa: F401
 
 
 class Commands:
-    def __init__(self, io, coder):
+    voice = None
+
+    def __init__(self, io, coder, voice_language=None):
         self.io = io
         self.coder = coder
+
+        if voice_language == "auto":
+            voice_language = None
+
+        self.voice_language = voice_language
         self.tokenizer = tiktoken.encoding_for_model(coder.main_model.name)
 
     def is_command(self, inp):
@@ -225,7 +232,7 @@ class Commands:
             return
 
         commits = f"{self.coder.last_aider_commit_hash}~1"
-        diff = self.coder.repo.get_diffs(
+        diff = self.coder.repo.diff_commits(
             self.coder.pretty,
             commits,
             self.coder.last_aider_commit_hash,
@@ -436,15 +443,34 @@ class Commands:
 
     def cmd_voice(self, args):
         "Record and transcribe voice input"
-        v = voice.Voice()
 
-        if not v.is_audio_available():
-            self.io.tool_error("Unable to import `sounddevice`, is portaudio installed?")
-            return
+        if not self.voice:
+            try:
+                self.voice = voice.Voice()
+            except voice.SoundDeviceError:
+                self.io.tool_error("Unable to import `sounddevice`, is portaudio installed?")
+                return
 
-        text = v.record_and_transcribe()
+        history_iter = self.io.get_input_history()
+
+        history = []
+        size = 0
+        for line in history_iter:
+            if line.startswith("/"):
+                continue
+            if line in history:
+                continue
+            if size + len(line) > 1024:
+                break
+            size += len(line)
+            history.append(line)
+
+        history.reverse()
+        history = "\n".join(history)
+
+        text = self.voice.record_and_transcribe(history, language=self.voice_language)
         if text:
-            self.io.add_to_file_history(text)
+            self.io.add_to_input_history(text)
             print()
             self.io.user_input(text, log_only=False)
             print()
